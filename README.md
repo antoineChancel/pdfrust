@@ -1,2 +1,9 @@
 # pdfrust
-pdf parser in rust
+
+Pdf parser in Rust
+
+References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf
+
+```sh
+cargo run data/helloworld.pdf
+```
