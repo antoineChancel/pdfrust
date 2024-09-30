@@ -1,3 +1,4 @@
+use core::str;
 use std::{
     env,
     fs::{self, read},
@@ -111,6 +112,8 @@ fn charset(char: &u8) -> CharacterSet {
 fn xref_address(bytes: &[u8]) -> usize {
     let mut res: usize = 0;
     let mut exp = 0;
+
+    // read file bytes in reverse order
     for i in bytes[..bytes.len() - 5].iter().rev() {
         let is_digit = match charset(i) {
             CharacterSet::Delimiter { char, .. } => panic!(
@@ -126,11 +129,13 @@ fn xref_address(bytes: &[u8]) -> usize {
             }
             CharacterSet::Regular { char } => char.is_ascii_digit(),
         };
+
         if is_digit {
             let digit = char::from(*i).to_digit(10).unwrap() as usize;
             res += digit * 10_usize.pow(exp);
             exp += 1;
         }
+
         // termination condition
         if !is_digit && res > 0 {
             break;
@@ -146,10 +151,6 @@ fn main() {
     // Remove potential whitespaces at begin or end
     let file = file.trim_ascii();
 
-    // for l in file.lines() {
-    //     println!("{}", l.unwrap());
-    // }
-
     // Pdf file version
     let version = pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
@@ -161,5 +162,20 @@ fn main() {
 
     // Address of xref / readaing file in reverse order / trying to match first decimal number
     let xref_idx = xref_address(&file);
-        
+    // Extract xref table
+    for l in str::from_utf8(&file[xref_idx..]).unwrap().lines() {
+        println!("{l}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_xref_adress() {
+        let end_chars = b"startxref\n\r492\n\r%%EOF";
+        let result = xref_address(end_chars);
+        assert_eq!(result, 492);
+    }
 }
