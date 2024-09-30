@@ -1,4 +1,8 @@
-use std::{env, fs};
+use std::{
+    env,
+    fs::{self, read},
+    io::BufRead,
+};
 
 struct Config {
     path: String,
@@ -22,15 +26,6 @@ impl Config {
     }
 }
 
-struct Metadata {
-    version: PdfVersion,
-}
-
-struct IndirectObject {
-    number: usize,
-    generation: usize,
-}
-
 #[derive(Debug)]
 enum WhiteSpace {
     Null,
@@ -51,6 +46,13 @@ impl WhiteSpace {
             13 => WhiteSpace::CarriageReturn,
             32 => WhiteSpace::Space,
             _ => panic!("Unable to interprete character set whitespace"),
+        }
+    }
+
+    fn is_eol(&self) -> bool {
+        match self {
+            Self::LineFeed | Self::CarriageReturn => true,
+            _ => false,
         }
     }
 }
@@ -82,26 +84,59 @@ enum CharacterSet {
     WhiteSpace { char: u8, value: WhiteSpace },
 }
 
-struct Token {
-    chars: Vec<CharacterSet>,
-}
-
-impl Token {
-    fn new() -> Token {
-        Token { chars: Vec::new() }
-    }
-
-    fn add(&mut self, value: CharacterSet) {
-        self.chars.push(value);
-    }
-}
-
 fn pdf_version(s: &[u8]) -> PdfVersion {
-    match &s[s.len()-3..] {
+    match &s[s.len() - 3..] {
         b"1.7" => PdfVersion::v_1_7,
         b"1.4" => PdfVersion::v_1_4,
-        _ => panic!("Pdf version not supported")
+        _ => panic!("Pdf version not supported"),
     }
+}
+
+fn charset(char: &u8) -> CharacterSet {
+    match char {
+        0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
+            char: *char,
+            value: WhiteSpace::new(*char),
+        },
+        b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
+            CharacterSet::Delimiter {
+                char: *char,
+                value: Delimiter::new(*char),
+            }
+        }
+        _ => CharacterSet::Regular { char: *char },
+    }
+}
+
+fn xref_address(bytes: &[u8]) -> usize {
+    let mut res: usize = 0;
+    let mut exp = 0;
+    for i in bytes[..bytes.len() - 5].iter().rev() {
+        let is_digit = match charset(i) {
+            CharacterSet::Delimiter { char, .. } => panic!(
+                "Bytes before %%EOF should not be a delimiter: {}",
+                char as char
+            ),
+            CharacterSet::WhiteSpace { char, value } => {
+                if value.is_eol() {
+                    continue;
+                } else {
+                    panic!("Bytes before %%EOF should not be delimiters")
+                }
+            }
+            CharacterSet::Regular { char } => char.is_ascii_digit(),
+        };
+        if is_digit {
+            let digit = char::from(*i).to_digit(10).unwrap() as usize;
+            res += digit * 10_usize.pow(exp);
+            exp += 1;
+        }
+        // termination condition
+        if !is_digit && res > 0 {
+            break;
+        }
+    };
+    res
 }
 
 fn main() {
@@ -110,31 +145,21 @@ fn main() {
 
     // Remove potential whitespaces at begin or end
     let file = file.trim_ascii();
-    
+
+    // for l in file.lines() {
+    //     println!("{}", l.unwrap());
+    // }
+
     // Pdf file version
     let version = pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
 
     // Pdf file has %%EOF comment
-    if &file[file.len()-5..] != b"%%EOF" {
+    if &file[file.len() - 5..] != b"%%EOF" {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // reading file data in 8 bits (page 48 of specs)
-    for char in file.iter() {
-        // character set : whitespaces, delimiters and regulars
-        let char_type = match char {
-            0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
-                char: *char,
-                value: WhiteSpace::new(*char),
-            },
-            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
-                CharacterSet::Delimiter {
-                    char: *char,
-                    value: Delimiter::new(*char),
-                }
-            }
-            _ => CharacterSet::Regular { char: *char },
-        };
-    }
+    // Address of xref / readaing file in reverse order / trying to match first decimal number
+    let xref_idx = xref_address(&file);
+        
 }
