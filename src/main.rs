@@ -1,10 +1,5 @@
-use core::str;
-use std::{
-    collections::HashMap,
-    env,
-    fs::{self, read},
-    io::BufRead,
-};
+use core::{panic, str};
+use std::{collections::HashMap, env};
 
 struct Config {
     path: String,
@@ -203,17 +198,20 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
 fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, PdfObject>) {
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
-    while let Some(entry) = xref_table_subsection_entry(line.next().unwrap()) {
-        println!("{entry:?}");
+    for object_idx in start..size {
+        match xref_table_subsection_entry(line.next().unwrap()) {
+            Some(o) => {
+                table.insert(object_idx, o);
+            }
+            None => panic!("Unable to read xref entry"),
+        }
     }
 }
 
-fn xref_table(file: &[u8]) -> HashMap<usize, PdfObject> {
-    // Address of xref in file bytes
-    let xref_idx = xref_address(&file);
+fn xref_table(stream: &[u8]) -> HashMap<usize, PdfObject> {
 
     // Extract xref table with iteration on lines
-    let mut line = str::from_utf8(&file[xref_idx..]).unwrap().lines();
+    let mut line = str::from_utf8(stream).unwrap().lines();
 
     // First line should be xref
     match line.next() {
@@ -230,7 +228,7 @@ fn xref_table(file: &[u8]) -> HashMap<usize, PdfObject> {
 
 fn main() {
     let config = Config::new(env::args());
-    let file = fs::read(config.path).unwrap();
+    let file = std::fs::read(config.path).unwrap();
 
     // Remove potential whitespaces at begin or end
     let file = file.trim_ascii();
@@ -244,8 +242,11 @@ fn main() {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
+    // Address of xref in file bytes
+    let xref_idx = xref_address(&file);
+
     // Extract xref table
-    xref_table(&file);
+    xref_table(&file[xref_idx..]);
 }
 
 #[cfg(test)]
@@ -276,7 +277,14 @@ mod tests {
     #[test]
     fn xref_valid_entry_in_use() {
         let entry = "0000000010 00000 n";
-        assert_eq!(xref_table_subsection_entry(entry).unwrap(), PdfObject{offset: 10, generation: 0, in_use: true});
+        assert_eq!(
+            xref_table_subsection_entry(entry).unwrap(),
+            PdfObject {
+                offset: 10,
+                generation: 0,
+                in_use: true
+            }
+        );
     }
 
     #[test]
@@ -284,7 +292,11 @@ mod tests {
         let entry = "0000000000 65535 f";
         assert_eq!(
             xref_table_subsection_entry(entry).unwrap(),
-            PdfObject{offset: 0, generation: 65535, in_use: false}
+            PdfObject {
+                offset: 0,
+                generation: 65535,
+                in_use: false
+            }
         );
     }
 
@@ -292,5 +304,19 @@ mod tests {
     fn xref_invalid_entry() {
         let entry = "<<";
         assert_eq!(xref_table_subsection_entry(entry), None);
+    }
+
+    #[test]
+    fn xref_table_valid() {
+        let xref_sample = b"xref
+0 6
+0000000000 65535 f 
+0000000010 00000 n 
+0000000079 00000 n 
+0000000173 00000 n 
+0000000301 00000 n 
+0000000380 00000 n";
+    let table = xref_table(xref_sample);
+    assert_eq!(table.len(), 6);
     }
 }
