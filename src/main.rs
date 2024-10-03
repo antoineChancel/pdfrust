@@ -1,5 +1,6 @@
 use core::str;
 use std::{
+    collections::HashMap,
     env,
     fs::{self, read},
     io::BufRead,
@@ -146,35 +147,85 @@ fn xref_address(bytes: &[u8]) -> usize {
 
 fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
     // Try reading first object idx and number of object of the xref subsection
-    let mut iter = line.split_whitespace();
-    let xref_sub_first_obj = match iter.next() {
-        Some(w) => { usize::from_str_radix(w, 10).unwrap() },
-        None => { return None }
+    let mut token = line.split_whitespace();
+    let xref_sub_first_obj = match token.next() {
+        Some(w) => match usize::from_str_radix(w, 10) {
+            Ok(i) => i,
+            Err(_) => return None,
+        },
+        None => return None,
     };
-    let xref_sub_nb_obj = match iter.next() {
-        Some(w) => { usize::from_str_radix(w, 10).unwrap() },
-        None => { return None }
+    let xref_sub_nb_obj = match token.next() {
+        Some(w) => match usize::from_str_radix(w, 10) {
+            Ok(i) => i,
+            Err(_) => return None,
+        },
+        None => return None,
     };
     Some((xref_sub_first_obj, xref_sub_nb_obj))
 }
 
-fn xref_table(file: &[u8]) {
-    // Address of xref / readaing file in reverse order / trying to match first decimal number
-    let xref_idx = xref_address(&file);
-    // Extract xref table
-    for (idx, l) in str::from_utf8(&file[xref_idx..]).unwrap().lines().enumerate() {
-        // End condition
-        if l.contains("startxref") {
-            break;
-        } else {
-            // Each cross-reference section begins with a line containing the keyword xref
-            if idx == 0 && l != "xref" {
-                panic!("Xref table first line should be xref, found {l}");
-            } else {
-                xref_table_subsection_header(l);
-            }
-        }
+#[derive(Debug, PartialEq)]
+struct PdfObject {
+    offset: usize,
+    generation: usize,
+    in_use: bool,
+}
+
+fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
+    // Try reading an xref entry
+    let mut token = line.split_whitespace();
+    let offset = match token.next() {
+        Some(w) => match usize::from_str_radix(w, 10) {
+            Ok(i) => i,
+            Err(_) => return None,
+        },
+        None => return None,
+    };
+    let generation = match token.next() {
+        Some(w) => match usize::from_str_radix(w, 10) {
+            Ok(i) => i,
+            Err(_) => return None,
+        },
+        None => return None,
+    };
+    let in_use = match token.next() {
+        Some(w) => w == "n",
+        None => return None,
+    };
+    Some(PdfObject {
+        offset,
+        generation,
+        in_use,
+    })
+}
+
+fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, PdfObject>) {
+    let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
+
+    while let Some(entry) = xref_table_subsection_entry(line.next().unwrap()) {
+        println!("{entry:?}");
     }
+}
+
+fn xref_table(file: &[u8]) -> HashMap<usize, PdfObject> {
+    // Address of xref in file bytes
+    let xref_idx = xref_address(&file);
+
+    // Extract xref table with iteration on lines
+    let mut line = str::from_utf8(&file[xref_idx..]).unwrap().lines();
+
+    // First line should be xref
+    match line.next() {
+        Some("xref") => (),
+        Some(s) => panic!("Xref first line contains a wrong token: {s}"),
+        None => panic!("Xref table is empty"),
+    };
+
+    // Init xref table
+    let mut table = HashMap::new();
+    xref_table_subsection(&mut line, &mut table);
+    table
 }
 
 fn main() {
@@ -202,17 +253,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_xref_adress() {
+    fn xref_adress() {
         let end_chars = b"startxref\n\r492\n\r%%EOF";
         let result = xref_address(end_chars);
         assert_eq!(result, 492);
     }
 
     #[test]
-    fn extract_xref_subsection_header() {
+    fn xref_subsection_header() {
         let s = "28 4";
         let (first, size) = xref_table_subsection_header(s).unwrap();
         assert_eq!(first, 28);
         assert_eq!(size, 4)
+    }
+
+    #[test]
+    fn xref_subsection_header_invalid() {
+        let s = "blabla";
+        assert_eq!(xref_table_subsection_header(s), None);
+    }
+
+    #[test]
+    fn xref_valid_entry_in_use() {
+        let entry = "0000000010 00000 n";
+        assert_eq!(xref_table_subsection_entry(entry).unwrap(), PdfObject{offset: 10, generation: 0, in_use: true});
+    }
+
+    #[test]
+    fn xref_valid_entry_not_in_use() {
+        let entry = "0000000000 65535 f";
+        assert_eq!(
+            xref_table_subsection_entry(entry).unwrap(),
+            PdfObject{offset: 0, generation: 65535, in_use: false}
+        );
+    }
+
+    #[test]
+    fn xref_invalid_entry() {
+        let entry = "<<";
+        assert_eq!(xref_table_subsection_entry(entry), None);
     }
 }
