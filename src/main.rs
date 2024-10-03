@@ -140,8 +140,41 @@ fn xref_address(bytes: &[u8]) -> usize {
         if !is_digit && res > 0 {
             break;
         }
-    };
+    }
     res
+}
+
+fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
+    // Try reading first object idx and number of object of the xref subsection
+    let mut iter = line.split_whitespace();
+    let xref_sub_first_obj = match iter.next() {
+        Some(w) => { usize::from_str_radix(w, 10).unwrap() },
+        None => { return None }
+    };
+    let xref_sub_nb_obj = match iter.next() {
+        Some(w) => { usize::from_str_radix(w, 10).unwrap() },
+        None => { return None }
+    };
+    Some((xref_sub_first_obj, xref_sub_nb_obj))
+}
+
+fn xref_table(file: &[u8]) {
+    // Address of xref / readaing file in reverse order / trying to match first decimal number
+    let xref_idx = xref_address(&file);
+    // Extract xref table
+    for (idx, l) in str::from_utf8(&file[xref_idx..]).unwrap().lines().enumerate() {
+        // End condition
+        if l.contains("startxref") {
+            break;
+        } else {
+            // Each cross-reference section begins with a line containing the keyword xref
+            if idx == 0 && l != "xref" {
+                panic!("Xref table first line should be xref, found {l}");
+            } else {
+                xref_table_subsection_header(l);
+            }
+        }
+    }
 }
 
 fn main() {
@@ -160,12 +193,8 @@ fn main() {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Address of xref / readaing file in reverse order / trying to match first decimal number
-    let xref_idx = xref_address(&file);
     // Extract xref table
-    for l in str::from_utf8(&file[xref_idx..]).unwrap().lines() {
-        println!("{l}");
-    }
+    xref_table(&file);
 }
 
 #[cfg(test)]
@@ -177,5 +206,13 @@ mod tests {
         let end_chars = b"startxref\n\r492\n\r%%EOF";
         let result = xref_address(end_chars);
         assert_eq!(result, 492);
+    }
+
+    #[test]
+    fn extract_xref_subsection_header() {
+        let s = "28 4";
+        let (first, size) = xref_table_subsection_header(s).unwrap();
+        assert_eq!(first, 28);
+        assert_eq!(size, 4)
     }
 }
