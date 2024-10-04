@@ -1,5 +1,5 @@
-use std::env;
 use rustpdf;
+use std::env;
 
 struct Config {
     path: String,
@@ -36,5 +36,4 @@ fn main() {
     // Extract xref table
     let table = rustpdf::xref_table(&file);
     println!("{table:?}")
-
 }

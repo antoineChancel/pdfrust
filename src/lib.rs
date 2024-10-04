@@ -1,5 +1,5 @@
 use core::{panic, str};
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 #[derive(Debug)]
 pub enum PdfVersion {
@@ -184,7 +184,7 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
 fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, PdfObject>) {
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
-    for object_idx in start..start+size {
+    for object_idx in start..start + size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
                 table.insert(object_idx, o);
@@ -195,7 +195,6 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, 
 }
 
 fn xref_slice(stream: &[u8]) -> &str {
-
     // Read address of xref after startxref token
     let startxref = startxref(&stream);
     println!("Pdf xref offset read is {startxref}");
@@ -209,7 +208,7 @@ fn xref_slice(stream: &[u8]) -> &str {
             // Look for a byte chain with xref encoded
             let startxref = match stream.windows(4).position(|w| w == b"xref") {
                 Some(i) => i,
-                None => panic!("Missing xref token in the entire PDF")
+                None => panic!("Missing xref token in the entire PDF"),
             };
             str::from_utf8(&stream[startxref..]).unwrap()
         }
@@ -217,7 +216,6 @@ fn xref_slice(stream: &[u8]) -> &str {
 }
 
 fn xref_table_read(mut line: core::str::Lines) -> HashMap<usize, PdfObject> {
-
     // First line should be xref
     match line.next() {
         Some("xref") => (),
@@ -229,7 +227,6 @@ fn xref_table_read(mut line: core::str::Lines) -> HashMap<usize, PdfObject> {
     let mut table = HashMap::new();
     xref_table_subsection(&mut line, &mut table);
     table
-
 }
 
 pub fn xref_table(file_stream: &[u8]) -> HashMap<usize, PdfObject> {
@@ -237,7 +234,6 @@ pub fn xref_table(file_stream: &[u8]) -> HashMap<usize, PdfObject> {
     let mut line = xref_slice(&file_stream).lines();
     xref_table_read(line)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -307,7 +303,7 @@ mod tests {
 0000000173 00000 n 
 0000000301 00000 n 
 0000000380 00000 n";
-    let table = xref_table_read(xref_sample.lines());
-    assert_eq!(table.len(), 6);
+        let table = xref_table_read(xref_sample.lines());
+        assert_eq!(table.len(), 6);
     }
 }
