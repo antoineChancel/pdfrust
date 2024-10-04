@@ -7,8 +7,9 @@ struct Config {
 
 #[derive(Debug)]
 enum PdfVersion {
-    v_1_4,
-    v_1_7,
+    V1_3,
+    V1_4,
+    V1_7,
 }
 
 impl Config {
@@ -83,8 +84,9 @@ enum CharacterSet {
 
 fn pdf_version(s: &[u8]) -> PdfVersion {
     match &s[s.len() - 3..] {
-        b"1.7" => PdfVersion::v_1_7,
-        b"1.4" => PdfVersion::v_1_4,
+        b"1.7" => PdfVersion::V1_7,
+        b"1.4" => PdfVersion::V1_4,
+        b"1.3" => PdfVersion::V1_3,
         _ => panic!("Pdf version not supported"),
     }
 }
@@ -105,7 +107,7 @@ fn charset(char: &u8) -> CharacterSet {
     }
 }
 
-fn xref_address(bytes: &[u8]) -> usize {
+fn startxref(bytes: &[u8]) -> usize {
     let mut res: usize = 0;
     let mut exp = 0;
 
@@ -116,7 +118,7 @@ fn xref_address(bytes: &[u8]) -> usize {
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
             ),
-            CharacterSet::WhiteSpace { char, value } => {
+            CharacterSet::WhiteSpace { char: _, value } => {
                 if value.is_eol() {
                     continue;
                 } else {
@@ -198,7 +200,7 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
 fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, PdfObject>) {
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
-    for object_idx in start..size {
+    for object_idx in start..start+size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
                 table.insert(object_idx, o);
@@ -208,10 +210,29 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, 
     }
 }
 
-fn xref_table(stream: &[u8]) -> HashMap<usize, PdfObject> {
+fn xref_slice(stream: &[u8]) -> &str {
+
+    // Read address of xref after startxref token
+    let startxref = startxref(&stream);
+    println!("Pdf xref offset read is {startxref}");
 
     // Extract xref table with iteration on lines
-    let mut line = str::from_utf8(stream).unwrap().lines();
+    match str::from_utf8(&stream[startxref..]) {
+        Ok(e) => e,
+        Err(e) => {
+            println!("Unable to read xref table from startxref position, PDF might be corrupted");
+            println!("Looking for xref in pdf...");
+            // Look for a byte chain with xref encoded
+            let startxref = match stream.windows(4).position(|w| w == b"xref") {
+                Some(i) => i,
+                None => panic!("Missing xref token in the entire PDF")
+            };
+            str::from_utf8(&stream[startxref..]).unwrap()
+        }
+    }
+}
+
+fn xref_table_read(mut line: core::str::Lines) -> HashMap<usize, PdfObject> {
 
     // First line should be xref
     match line.next() {
@@ -224,6 +245,13 @@ fn xref_table(stream: &[u8]) -> HashMap<usize, PdfObject> {
     let mut table = HashMap::new();
     xref_table_subsection(&mut line, &mut table);
     table
+
+}
+
+fn xref_table(file_stream: &[u8]) -> HashMap<usize, PdfObject> {
+    // Iterator on xref table lines
+    let mut line = xref_slice(&file_stream).lines();
+    xref_table_read(line)
 }
 
 fn main() {
@@ -242,21 +270,22 @@ fn main() {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Address of xref in file bytes
-    let xref_idx = xref_address(&file);
-
     // Extract xref table
-    xref_table(&file[xref_idx..]);
+    let table = xref_table(&file);
+    println!("{table:?}")
+
 }
 
 #[cfg(test)]
 mod tests {
+    use std::io::BufRead;
+
     use super::*;
 
     #[test]
     fn xref_adress() {
         let end_chars = b"startxref\n\r492\n\r%%EOF";
-        let result = xref_address(end_chars);
+        let result = startxref(end_chars);
         assert_eq!(result, 492);
     }
 
@@ -308,7 +337,7 @@ mod tests {
 
     #[test]
     fn xref_table_valid() {
-        let xref_sample = b"xref
+        let xref_sample = "xref
 0 6
 0000000000 65535 f 
 0000000010 00000 n 
@@ -316,7 +345,7 @@ mod tests {
 0000000173 00000 n 
 0000000301 00000 n 
 0000000380 00000 n";
-    let table = xref_table(xref_sample);
+    let table = xref_table_read(xref_sample.lines());
     assert_eq!(table.len(), 6);
     }
 }
