@@ -7,3 +7,8 @@ References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfre
 ```sh
 cargo run data/helloworld.pdf
 ```
+
+Unit tests
+```sh
+cargo test
+```
