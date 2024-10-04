@@ -1,5 +1,5 @@
 use core::{panic, str};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 pub enum PdfVersion {
@@ -181,7 +181,7 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines, table: &mut HashMap<usize, PdfObject>) {
+fn xref_table_subsection(line: &mut std::str::Lines, table: &mut BTreeMap<usize, PdfObject>) {
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
     for object_idx in start..start + size {
@@ -215,7 +215,7 @@ fn xref_slice(stream: &[u8]) -> &str {
     }
 }
 
-fn xref_table_read(mut line: core::str::Lines) -> HashMap<usize, PdfObject> {
+fn xref_table_read(mut line: core::str::Lines) -> BTreeMap<usize, PdfObject> {
     // First line should be xref
     match line.next() {
         Some("xref") => (),
@@ -224,15 +224,14 @@ fn xref_table_read(mut line: core::str::Lines) -> HashMap<usize, PdfObject> {
     };
 
     // Init xref table
-    let mut table = HashMap::new();
+    let mut table = BTreeMap::new();
     xref_table_subsection(&mut line, &mut table);
     table
 }
 
-pub fn xref_table(file_stream: &[u8]) -> HashMap<usize, PdfObject> {
-    // Iterator on xref table lines
-    let mut line = xref_slice(&file_stream).lines();
-    xref_table_read(line)
+// Parse PDF xref table
+pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
+    xref_table_read(xref_slice(&file_stream).lines())
 }
 
 #[cfg(test)]

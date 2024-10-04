@@ -24,16 +24,19 @@ fn main() {
     // Remove potential whitespaces at begin or end
     let file = file.trim_ascii();
 
-    // Pdf file version
-    let version = rustpdf::pdf_version(&file[..8]);
-    println!("Pdf version {version:?}");
-
-    // Pdf file has %%EOF comment
+    // Pdf file ends with %%EOF
     if &file[file.len() - 5..] != b"%%EOF" {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Extract xref table
+    // Pdf header with specifications version
+    let version = rustpdf::pdf_version(&file[..8]);
+    println!("Pdf version {version:?}");
+
+    // Cross reference table
     let table = rustpdf::xref_table(&file);
     println!("{table:?}")
+
+    // Trailer
+    
 }
