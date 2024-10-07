@@ -3,6 +3,22 @@ use std::collections::BTreeMap;
 
 pub mod object;
 
+#[derive(Debug)]
+pub enum PdfVersion {
+    V1_3,
+    V1_4,
+    V1_7,
+}
+
+pub fn pdf_version(s: &[u8]) -> PdfVersion {
+    match &s[s.len() - 3..] {
+        b"1.7" => PdfVersion::V1_7,
+        b"1.4" => PdfVersion::V1_4,
+        b"1.3" => PdfVersion::V1_3,
+        _ => panic!("Pdf version not supported"),
+    }
+}
+
 fn startxref(bytes: &[u8]) -> usize {
     let mut res: usize = 0;
     let mut exp = 0;
@@ -190,7 +206,7 @@ pub fn trailer(file_stream: &[u8]) -> () {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
-    // read trailer data
+    // read trailer data - pdf dictionnary
     // let l = file_stream[starttrailer..].lines();
     // l.next(); // trailer
     // l.next(); // <<

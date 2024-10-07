@@ -25,12 +25,11 @@ fn main() {
     // let file = file.trim_ascii();
 
     // Pdf header with specifications version
-    let version = rustpdf::object::pdf_version(&file[..8]);
+    let version = rustpdf::pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
 
-    // Trailer
-
     // Pdf file ends with %%EOF
+    let file = file.trim_ascii();
     if &file[file.len() - 5..] != b"%%EOF" {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }

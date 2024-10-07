@@ -50,22 +50,6 @@ impl Delimiter {
 }
 
 #[derive(Debug)]
-pub enum PdfVersion {
-    V1_3,
-    V1_4,
-    V1_7,
-}
-
-pub fn pdf_version(s: &[u8]) -> PdfVersion {
-    match &s[s.len() - 3..] {
-        b"1.7" => PdfVersion::V1_7,
-        b"1.4" => PdfVersion::V1_4,
-        b"1.3" => PdfVersion::V1_3,
-        _ => panic!("Pdf version not supported"),
-    }
-}
-
-#[derive(Debug)]
 pub enum CharacterSet {
     Regular { char: u8 },
     Delimiter { char: u8, value: Delimiter },
@@ -105,7 +89,11 @@ impl From<&[u8]> for Name {
         }
         let mut name = String::new();
         loop {
-            match CharacterSet::new(c.next().unwrap()) {
+            let curr = match c.next() {
+                Some(e) => e,
+                None => break
+            };
+            match CharacterSet::new(curr) {
                 CharacterSet::Regular { char } => name.push(char::from(char)),
                 _ => break,
             }
@@ -122,6 +110,12 @@ mod tests {
     #[test]
     fn read_name_object_from_u8() {
         let entry_sample = b"/Type /Font".as_slice();
+        assert_eq!(Name::from(entry_sample), Name{ value: String::from("Type")});
+    }
+
+    #[test]
+    fn read_name_object_from_u8_2() {
+        let entry_sample = b"/Type".as_slice();
         assert_eq!(Name::from(entry_sample), Name{ value: String::from("Type")});
     }
 }
