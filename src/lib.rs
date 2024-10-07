@@ -1,97 +1,7 @@
 use core::{panic, str};
 use std::collections::BTreeMap;
 
-#[derive(Debug)]
-pub enum PdfVersion {
-    V1_3,
-    V1_4,
-    V1_7,
-}
-
-#[derive(Debug)]
-enum WhiteSpace {
-    Null,
-    Tab,
-    LineFeed,
-    FormFeed,
-    CarriageReturn,
-    Space,
-}
-
-impl WhiteSpace {
-    fn new(char: u8) -> WhiteSpace {
-        match char {
-            0 => WhiteSpace::Null,
-            9 => WhiteSpace::Tab,
-            10 => WhiteSpace::LineFeed,
-            12 => WhiteSpace::FormFeed,
-            13 => WhiteSpace::CarriageReturn,
-            32 => WhiteSpace::Space,
-            _ => panic!("Unable to interprete character set whitespace"),
-        }
-    }
-
-    fn is_eol(&self) -> bool {
-        match self {
-            Self::LineFeed | Self::CarriageReturn => true,
-            _ => false,
-        }
-    }
-}
-
-#[derive(Debug)]
-enum Delimiter {
-    String,
-    Array,
-    Name,
-    Comment,
-}
-
-impl Delimiter {
-    fn new(char: u8) -> Delimiter {
-        match char {
-            b'(' | b')' => Delimiter::String,
-            b'<' | b'>' | b'[' | b']' | b'{' | b'}' => Delimiter::Array,
-            b'/' => Delimiter::Name,
-            b'%' => Delimiter::Comment,
-            _ => panic!("Unable to interprete character set delimiter"),
-        }
-    }
-}
-
-#[derive(Debug)]
-enum CharacterSet {
-    Regular { char: u8 },
-    Delimiter { char: u8, value: Delimiter },
-    WhiteSpace { char: u8, value: WhiteSpace },
-}
-
-pub fn pdf_version(s: &[u8]) -> PdfVersion {
-    match &s[s.len() - 3..] {
-        b"1.7" => PdfVersion::V1_7,
-        b"1.4" => PdfVersion::V1_4,
-        b"1.3" => PdfVersion::V1_3,
-        _ => panic!("Pdf version not supported"),
-    }
-}
-
-impl CharacterSet {
-    fn new(char: &u8) -> CharacterSet {
-        match char {
-            0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
-                char: *char,
-                value: WhiteSpace::new(*char),
-            },
-            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
-                CharacterSet::Delimiter {
-                    char: *char,
-                    value: Delimiter::new(*char),
-                }
-            }
-            _ => CharacterSet::Regular { char: *char },
-        }
-    }
-}
+pub mod object;
 
 fn startxref(bytes: &[u8]) -> usize {
     let mut res: usize = 0;
@@ -99,19 +9,19 @@ fn startxref(bytes: &[u8]) -> usize {
 
     // read file bytes in reverse order
     for i in bytes[..bytes.len() - 5].iter().rev() {
-        let is_digit = match CharacterSet::new(i) {
-            CharacterSet::Delimiter { char, .. } => panic!(
+        let is_digit = match object::CharacterSet::new(i) {
+            object::CharacterSet::Delimiter { char, .. } => panic!(
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
             ),
-            CharacterSet::WhiteSpace { char: _, value } => {
+            object::CharacterSet::WhiteSpace { char: _, value } => {
                 if value.is_eol() {
                     continue;
                 } else {
                     panic!("Bytes before %%EOF should not be delimiters")
                 }
             }
-            CharacterSet::Regular { char } => char.is_ascii_digit(),
+            object::CharacterSet::Regular { char } => char.is_ascii_digit(),
         };
 
         if is_digit {
@@ -256,33 +166,6 @@ struct Trailer {
     encrypt: Option<IndirectRef>, // Encryption dictionnary
     info: Option<IndirectRef>,    // Information dictionary
     id: Option<Vec<String>>,      // An array of two byte-strings constituting a file identifier
-}
-
-struct Name {
-    value: String,
-}
-
-impl From<&[u8]> for Name {
-    fn from(value: &[u8]) -> Self {
-        let mut c = value.iter();
-        // Name object starts with regular character /
-        match CharacterSet::new(c.next().unwrap()) {
-            CharacterSet::Regular { char } => {
-                if char != b'/' {
-                    panic!("Pdf name object should start with a /");
-                }
-            }
-            _ => panic!("Pdf name object should start with a regular character"),
-        }
-        let mut name = String::new();
-        loop {
-            match CharacterSet::new(c.next().unwrap()) {
-                CharacterSet::Regular { char } => name.push(char::from(char)),
-                _ => break,
-            }
-        }
-        Name { value: name }
-    }
 }
 
 // enum DictObject<'a> {

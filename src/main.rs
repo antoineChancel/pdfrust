@@ -25,7 +25,7 @@ fn main() {
     // let file = file.trim_ascii();
 
     // Pdf header with specifications version
-    let version = rustpdf::pdf_version(&file[..8]);
+    let version = rustpdf::object::pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
 
     // Trailer
