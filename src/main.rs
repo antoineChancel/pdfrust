@@ -22,21 +22,24 @@ fn main() {
     let file = std::fs::read(config.path).unwrap();
 
     // Remove potential whitespaces at begin or end
-    let file = file.trim_ascii();
+    // let file = file.trim_ascii();
+
+    // Pdf header with specifications version
+    let version = rustpdf::pdf_version(&file[..8]);
+    println!("Pdf version {version:?}");
+
+    // Trailer
 
     // Pdf file ends with %%EOF
     if &file[file.len() - 5..] != b"%%EOF" {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Pdf header with specifications version
-    let version = rustpdf::pdf_version(&file[..8]);
-    println!("Pdf version {version:?}");
-
     // Cross reference table
-    let table = rustpdf::xref_table(&file);
-    println!("{table:?}")
+    let xref_table = rustpdf::xref_table(&file);
+    println!("{xref_table:?}");
 
     // Trailer
-    
+    let trailer = rustpdf::trailer(&file);
+    println!("{trailer:?}");
 }

@@ -75,19 +75,21 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
-fn charset(char: &u8) -> CharacterSet {
-    match char {
-        0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
-            char: *char,
-            value: WhiteSpace::new(*char),
-        },
-        b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
-            CharacterSet::Delimiter {
+impl CharacterSet {
+    fn new(char: &u8) -> CharacterSet {
+        match char {
+            0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
                 char: *char,
-                value: Delimiter::new(*char),
+                value: WhiteSpace::new(*char),
+            },
+            b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
+                CharacterSet::Delimiter {
+                    char: *char,
+                    value: Delimiter::new(*char),
+                }
             }
+            _ => CharacterSet::Regular { char: *char },
         }
-        _ => CharacterSet::Regular { char: *char },
     }
 }
 
@@ -97,7 +99,7 @@ fn startxref(bytes: &[u8]) -> usize {
 
     // read file bytes in reverse order
     for i in bytes[..bytes.len() - 5].iter().rev() {
-        let is_digit = match charset(i) {
+        let is_digit = match CharacterSet::new(i) {
             CharacterSet::Delimiter { char, .. } => panic!(
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
@@ -232,6 +234,86 @@ fn xref_table_read(mut line: core::str::Lines) -> BTreeMap<usize, PdfObject> {
 // Parse PDF xref table
 pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
     xref_table_read(xref_slice(&file_stream).lines())
+}
+
+struct IndirectRef {
+    obj_num: usize,
+    obj_gen: usize,
+}
+
+// impl IndirectRef {
+
+//     // Read bytes into "1 0 R" IndirectRef
+//     fn new(bytes: &[u8]) -> IndirectRef {
+
+//     }
+// }
+
+struct Trailer {
+    size: usize,
+    prev: usize,
+    root: Option<IndirectRef>,    // Catalogue dictionnary
+    encrypt: Option<IndirectRef>, // Encryption dictionnary
+    info: Option<IndirectRef>,    // Information dictionary
+    id: Option<Vec<String>>,      // An array of two byte-strings constituting a file identifier
+}
+
+struct Name {
+    value: String,
+}
+
+impl From<&[u8]> for Name {
+    fn from(value: &[u8]) -> Self {
+        let mut c = value.iter();
+        // Name object starts with regular character /
+        match CharacterSet::new(c.next().unwrap()) {
+            CharacterSet::Regular { char } => {
+                if char != b'/' {
+                    panic!("Pdf name object should start with a /");
+                }
+            }
+            _ => panic!("Pdf name object should start with a regular character"),
+        }
+        let mut name = String::new();
+        loop {
+            match CharacterSet::new(c.next().unwrap()) {
+                CharacterSet::Regular { char } => name.push(char::from(char)),
+                _ => break,
+            }
+        }
+        Name { value: name }
+    }
+}
+
+// enum DictObject<'a> {
+//     Name(&'a Name),
+//     Boolean(&'a bool),
+//     Numeric(&'a usize),
+//     String(&'a String),
+//     Stream(&'a String),
+//     Dict(HashMap<Name, Object<'a>>),
+// }
+
+// fn read_pdf_dictionnary (file_stream: &[u8]) -> HashMap<Name, DictObject>{
+//     assert_eq!(l.next());
+// }
+
+// Parse PDF trailer
+// Implementation note 13 :  Acrobat viewers require only that the header
+// appear somewhere within the first 1024 bytes of the file.
+pub fn trailer(file_stream: &[u8]) -> () {
+    // locate trailer address
+    let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
+        Some(i) => i,
+        None => panic!("Missing trailer token in the entire PDF"),
+    };
+    // read trailer data
+    // let l = file_stream[starttrailer..].lines();
+    // l.next(); // trailer
+    // l.next(); // <<
+    // while let Some(entry) {
+
+    // }
 }
 
 #[cfg(test)]
