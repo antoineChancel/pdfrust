@@ -162,27 +162,14 @@ pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
     xref_table_read(xref_slice(&file_stream).lines())
 }
 
-struct IndirectRef {
-    obj_num: usize,
-    obj_gen: usize,
-}
-
-// impl IndirectRef {
-
-//     // Read bytes into "1 0 R" IndirectRef
-//     fn new(bytes: &[u8]) -> IndirectRef {
-
-//     }
+// struct Trailer {
+//     size: usize,
+//     prev: usize,
+//     root: Option<IndirectRef>,    // Catalogue dictionnary
+//     encrypt: Option<IndirectRef>, // Encryption dictionnary
+//     info: Option<IndirectRef>,    // Information dictionary
+//     id: Option<Vec<String>>,      // An array of two byte-strings constituting a file identifier
 // }
-
-struct Trailer {
-    size: usize,
-    prev: usize,
-    root: Option<IndirectRef>,    // Catalogue dictionnary
-    encrypt: Option<IndirectRef>, // Encryption dictionnary
-    info: Option<IndirectRef>,    // Information dictionary
-    id: Option<Vec<String>>,      // An array of two byte-strings constituting a file identifier
-}
 
 // enum DictObject<'a> {
 //     Name(&'a Name),
@@ -206,6 +193,7 @@ pub fn trailer(file_stream: &[u8]) -> () {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
+
     // read trailer data - pdf dictionnary
     // let l = file_stream[starttrailer..].lines();
     // l.next(); // trailer
