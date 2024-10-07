@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn read_name_object_from_u8_2() {
-        let entry_sample = b"/Type".as_slice();
-        assert_eq!(Name::from(entry_sample), Name{ value: String::from("Type")});
+        let entry_sample = b"/Root".as_slice();
+        assert_eq!(Name::from(entry_sample), Name{ value: String::from("Root")});
     }
 }
