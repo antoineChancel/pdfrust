@@ -1,4 +1,4 @@
-use std::{arch::is_riscv_feature_detected, slice::Iter};
+use std::slice::Iter;
 
 #[derive(Debug)]
 pub enum WhiteSpace {
