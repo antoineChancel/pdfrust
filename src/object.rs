@@ -1,3 +1,5 @@
+use std::{arch::is_riscv_feature_detected, slice::Iter};
+
 #[derive(Debug)]
 pub enum WhiteSpace {
     Null,
@@ -110,12 +112,11 @@ struct Numeric {
     value: u32,
 }
 
-impl From<&[u8]> for Numeric {
-    fn from(value: &[u8]) -> Self {
-        let mut c = value.iter();
+impl From<&mut Iter<'_, u8>> for Numeric {
+    fn from(byte: &mut Iter<'_, u8>) -> Self {
         let mut value: u32 = 0;
         loop {
-            let curr = match c.next() {
+            let curr = match byte.next() {
                 Some(e) => e,
                 None => break,
             };
@@ -131,16 +132,22 @@ impl From<&[u8]> for Numeric {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct IndirectObject {
     obj_num: Numeric,
     obj_gen: Numeric,
     is_reference: bool,
 }
 
-impl From<&[u8]> for IndirectRef {
+impl From<&mut Iter<'_, u8>> for IndirectObject {
     // Read bytes b"1 0 R: to IndirectRef
-    fn from(bytes: &[u8]) -> Self {
-        let c = bytes.iter();
+    fn from(byte: &mut Iter<'_, u8>) -> Self {
+        let obj_num = Numeric::from(&mut *byte);
+        let obj_gen = Numeric::from(byte);
+        let is_reference = true;
+        IndirectObject {
+            obj_num, obj_gen, is_reference
+        }
     }
 }
 
@@ -173,13 +180,23 @@ mod tests {
 
     #[test]
     fn read_numeric_object() {
-        let entry_sample = b"6".as_slice();
-        assert_eq!(Numeric::from(entry_sample), Numeric { value: 6 });
+        let mut entry_sample = b"6".iter();
+        assert_eq!(Numeric::from(&mut entry_sample), Numeric { value: 6 });
     }
 
     #[test]
     fn read_numeric_object_with_sign() {
-        let entry_sample = b"+54".as_slice();
-        assert_eq!(Numeric::from(entry_sample), Numeric { value: 54 });
+        let mut entry_sample = b"+54".iter();
+        assert_eq!(Numeric::from(&mut entry_sample), Numeric { value: 54 });
+    }
+
+    #[test]
+    fn read_indirect_object_ref() {
+        let mut object_ref_sample = b"1 0 R".iter();
+        assert_eq!(IndirectObject::from(&mut object_ref_sample), IndirectObject {
+            obj_num: Numeric { value: 1 },
+            obj_gen: Numeric { value: 0 },
+            is_reference: true,
+        });
     }
 }
