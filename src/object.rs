@@ -1,4 +1,5 @@
-use std::slice::Iter;
+use core::panic;
+use std::{collections::HashMap, slice::Iter};
 
 #[derive(Debug)]
 pub enum WhiteSpace {
@@ -76,7 +77,7 @@ impl CharacterSet {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 struct Name {
     value: String,
 }
@@ -148,6 +149,51 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
         IndirectObject {
             obj_num, obj_gen, is_reference
         }
+    }
+}
+
+enum DictValue {
+    Name(Name),
+    Dict(Dict),
+    Numeric(Numeric),
+    String(String),
+    Bool(bool)
+}
+
+struct Dict {
+    value: HashMap<Name, DictValue>
+}
+
+impl Dict {
+    fn read_entry(line: &str) -> (Name, DictValue) {
+        (Name {
+            value: String::from("TBD")
+        }, DictValue::Name(Name{value: String::from("antoine")}))
+    }
+}
+
+impl From<&str> for Dict {
+
+    fn from(bytes: &str) -> Self {
+        let mut lines = bytes.lines();
+        // First line is <<
+        match lines.next() {
+            Some("<<") => (),
+            Some(l) => panic!("PDF dictionnary should start with '<<' found {l}"),
+            _ => panic!("PDF dictionnary missing line")
+        }
+        let mut value = HashMap::new();
+        loop {
+            match lines.next() {
+                Some(">>") => break,
+                Some(l) => {
+                    let (k, v) = Dict::read_entry(l);
+                    value.insert(k, v);
+                },
+                None => panic!("PDF dictionnary parser reached end of stream without finding a >>")
+            };
+        }
+        Dict { value }
     }
 }
 
