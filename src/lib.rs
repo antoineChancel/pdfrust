@@ -25,7 +25,7 @@ fn startxref(bytes: &[u8]) -> usize {
 
     // read file bytes in reverse order
     for i in bytes[..bytes.len() - 5].iter().rev() {
-        let is_digit = match object::CharacterSet::new(i) {
+        let is_digit = match object::CharacterSet::from(i) {
             object::CharacterSet::Delimiter { char, .. } => panic!(
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
@@ -162,28 +162,6 @@ pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
     xref_table_read(xref_slice(&file_stream).lines())
 }
 
-// struct Trailer {
-//     size: usize,
-//     prev: usize,
-//     root: Option<IndirectRef>,    // Catalogue dictionnary
-//     encrypt: Option<IndirectRef>, // Encryption dictionnary
-//     info: Option<IndirectRef>,    // Information dictionary
-//     id: Option<Vec<String>>,      // An array of two byte-strings constituting a file identifier
-// }
-
-// enum DictObject<'a> {
-//     Name(&'a Name),
-//     Boolean(&'a bool),
-//     Numeric(&'a usize),
-//     String(&'a String),
-//     Stream(&'a String),
-//     Dict(HashMap<Name, Object<'a>>),
-// }
-
-// fn read_pdf_dictionnary (file_stream: &[u8]) -> HashMap<Name, DictObject>{
-//     assert_eq!(l.next());
-// }
-
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
@@ -193,14 +171,6 @@ pub fn trailer(file_stream: &[u8]) -> () {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
-
-    // read trailer data - pdf dictionnary
-    // let l = file_stream[starttrailer..].lines();
-    // l.next(); // trailer
-    // l.next(); // <<
-    // while let Some(entry) {
-
-    // }
 }
 
 #[cfg(test)]

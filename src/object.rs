@@ -59,8 +59,8 @@ pub enum CharacterSet {
     WhiteSpace { char: u8, value: WhiteSpace },
 }
 
-impl CharacterSet {
-    pub fn new(char: &u8) -> CharacterSet {
+impl From<&u8> for CharacterSet {
+    fn from(char: &u8) -> CharacterSet {
         match char {
             0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
                 char: *char,
@@ -82,11 +82,38 @@ struct Name {
     value: String,
 }
 
+impl TryFrom<&mut Iter<'_, u8>> for Name {
+    type Error = &'static str;
+
+    fn try_from(mut value: &mut Iter<'_, u8>) -> Result<Self, Self::Error> {
+        // Name object starts with regular character /'
+        match CharacterSet::from(value.next().unwrap()) {
+            CharacterSet::Delimiter {
+                char,
+                value: Delimiter::Name,
+            } => (),
+            _ => return Err("Pdf name object should start with a name delimiter"),
+        }
+        let mut name = String::new();
+        loop {
+            let curr = match value.next() {
+                Some(e) => e,
+                None => break,
+            };
+            match CharacterSet::from(curr) {
+                CharacterSet::Regular { char } => name.push(char::from(char)),
+                _ => break,
+            }
+        }
+        Ok(Name { value: name })
+    }
+}
+
 impl From<&[u8]> for Name {
     fn from(value: &[u8]) -> Self {
         let mut c = value.iter();
         // Name object starts with regular character /'
-        match CharacterSet::new(c.next().unwrap()) {
+        match CharacterSet::from(c.next().unwrap()) {
             CharacterSet::Delimiter {
                 char,
                 value: Delimiter::Name,
@@ -99,7 +126,7 @@ impl From<&[u8]> for Name {
                 Some(e) => e,
                 None => break,
             };
-            match CharacterSet::new(curr) {
+            match CharacterSet::from(curr) {
                 CharacterSet::Regular { char } => name.push(char::from(char)),
                 _ => break,
             }
@@ -113,28 +140,30 @@ struct Numeric {
     value: u32,
 }
 
-impl From<&mut Iter<'_, u8>> for Numeric {
-    fn from(byte: &mut Iter<'_, u8>) -> Self {
-        let mut value: u32 = 0;
+impl TryFrom<&mut Iter<'_, u8>> for Numeric {
+    type Error = &'static str;
+
+    fn try_from(value: &mut Iter<'_, u8>) -> Result<Self, Self::Error> {
+        let mut numeric: u32 = 0;
         loop {
-            let curr = match byte.next() {
+            let curr = match value.next() {
                 Some(e) => e,
                 None => break,
             };
-            match CharacterSet::new(curr) {
+            match CharacterSet::from(curr) {
                 CharacterSet::Regular { char: b'+' | b'-' } => (),
                 CharacterSet::Regular {
                     char: b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',
-                } => value = value * 10 + char::from(*curr).to_digit(10).unwrap(),
+                } => numeric = numeric * 10 + char::from(*curr).to_digit(10).unwrap(),
                 _ => break,
             }
         }
-        Self { value }
+        Ok(Self { value: numeric })
     }
 }
 
 #[derive(Debug, PartialEq)]
-struct IndirectObject {
+pub struct IndirectObject {
     obj_num: Numeric,
     obj_gen: Numeric,
     is_reference: bool,
@@ -143,57 +172,67 @@ struct IndirectObject {
 impl From<&mut Iter<'_, u8>> for IndirectObject {
     // Read bytes b"1 0 R: to IndirectRef
     fn from(byte: &mut Iter<'_, u8>) -> Self {
-        let obj_num = Numeric::from(&mut *byte);
-        let obj_gen = Numeric::from(byte);
-        let is_reference = true;
+        let obj_num = Numeric::try_from(&mut *byte).unwrap();
+        let obj_gen = Numeric::try_from(&mut *byte).unwrap();
+        let is_reference = match byte.next() {
+            Some(b'R') => true,
+            Some(b'o') => {byte.next().unwrap();byte.next().unwrap();false},
+            Some(c) => panic!("Incoherent character found in third component of indirect object: {c}"),
+            None => panic!("Unable to read third component of indirect object")
+        };
+        byte.next(); // TODO: check whitespace
         IndirectObject {
-            obj_num, obj_gen, is_reference
+            obj_num,
+            obj_gen,
+            is_reference,
         }
     }
 }
 
-enum DictValue {
-    Name(Name),
-    Dict(Dict),
-    Numeric(Numeric),
-    String(String),
-    Bool(bool)
+// extract trailer dictionnary
+#[derive(Debug, PartialEq)]
+struct Trailer {
+    size: Numeric,
+    prev: Option<Numeric>,
+    root: IndirectObject,            // Catalogue dictionnary
+    encrypt: Option<IndirectObject>, // Encryption dictionnary
+    info: Option<IndirectObject>,    // Information dictionary
+    id: Option<Vec<String>>,         // An array of two byte-strings constituting a file identifier
 }
 
-struct Dict {
-    value: HashMap<Name, DictValue>
-}
+impl From<&[u8]> for Trailer {
+    fn from(bytes: &[u8]) -> Self {
+        let mut size = Numeric { value: 9999};
+        let mut root = IndirectObject { obj_num: Numeric { value: 0 }, obj_gen: Numeric { value: 0 }, is_reference: true };
+        let mut info = None;
+        let mut id = None;
+        let mut prev = None;
+        let mut encrypt = None;
 
-impl Dict {
-    fn read_entry(line: &str) -> (Name, DictValue) {
-        (Name {
-            value: String::from("TBD")
-        }, DictValue::Name(Name{value: String::from("antoine")}))
-    }
-}
+        let mut iter = bytes.iter();
+        assert_eq!(*iter.next().unwrap(), b'<');
+        assert_eq!(*iter.next().unwrap(), b'<');
+        assert_eq!(*iter.next().unwrap(), b' ');
 
-impl From<&str> for Dict {
-
-    fn from(bytes: &str) -> Self {
-        let mut lines = bytes.lines();
-        // First line is <<
-        match lines.next() {
-            Some("<<") => (),
-            Some(l) => panic!("PDF dictionnary should start with '<<' found {l}"),
-            _ => panic!("PDF dictionnary missing line")
-        }
-        let mut value = HashMap::new();
-        loop {
-            match lines.next() {
-                Some(">>") => break,
-                Some(l) => {
-                    let (k, v) = Dict::read_entry(l);
-                    value.insert(k, v);
-                },
-                None => panic!("PDF dictionnary parser reached end of stream without finding a >>")
+        while let Ok(name) = Name::try_from(&mut iter) {
+            match name.value.as_str() {
+                "Size" => size = Numeric::try_from(&mut iter).unwrap(),
+                "Root" => root = IndirectObject::try_from(&mut iter).unwrap(),
+                "Info" => info = IndirectObject::try_from(&mut iter).ok(),
+                "Prev" => prev = Numeric::try_from(&mut iter).ok(),
+                "Encrypt" => encrypt = IndirectObject::try_from(&mut iter).ok(),
+                "ID" => (), //id = Array::try_from(iter).ok(),
+                a => panic!("Unexpected key was found in trailer {a}"),
             };
         }
-        Dict { value }
+        Trailer {
+            size,
+            prev,
+            root,
+            encrypt,
+            info,
+            id,
+        }
     }
 }
 
@@ -227,22 +266,39 @@ mod tests {
     #[test]
     fn read_numeric_object() {
         let mut entry_sample = b"6".iter();
-        assert_eq!(Numeric::from(&mut entry_sample), Numeric { value: 6 });
+        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric { value: 6 }));
     }
 
     #[test]
     fn read_numeric_object_with_sign() {
         let mut entry_sample = b"+54".iter();
-        assert_eq!(Numeric::from(&mut entry_sample), Numeric { value: 54 });
+        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric { value: 54 }));
     }
 
     #[test]
     fn read_indirect_object_ref() {
         let mut object_ref_sample = b"1 0 R".iter();
-        assert_eq!(IndirectObject::from(&mut object_ref_sample), IndirectObject {
-            obj_num: Numeric { value: 1 },
-            obj_gen: Numeric { value: 0 },
-            is_reference: true,
+        assert_eq!(
+            IndirectObject::from(&mut object_ref_sample),
+            IndirectObject {
+                obj_num: Numeric { value: 1 },
+                obj_gen: Numeric { value: 0 },
+                is_reference: true,
+            }
+        );
+    }
+
+    #[test]
+    fn read_trailer_from_one_line() {
+        let mut dict = b"<< /Size 26 /Root 13 0 R /Info 1 0 R /ID [ <4e949515aaf132498f650e7bde6cdc2f>
+<4e949515aaf132498f650e7bde6cdc2f> ] >>".as_slice();
+        assert_eq!(Trailer::from(dict), Trailer {
+            size: Numeric { value: 26 },
+            root: IndirectObject { obj_num: Numeric{ value: 13 }, obj_gen: Numeric{ value: 0 }, is_reference: true },
+            info: Some(IndirectObject { obj_num: Numeric{ value: 1 }, obj_gen: Numeric{ value: 0 }, is_reference: true }),
+            prev: None,
+            encrypt: None,
+            id: None
         });
     }
 }
