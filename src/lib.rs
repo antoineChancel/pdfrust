@@ -165,12 +165,13 @@ pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
-pub fn trailer(file_stream: &[u8]) -> () {
+pub fn trailer(file_stream: &[u8]) -> object::Trailer {
     // locate trailer address
     let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
+    object::Trailer::from(&file_stream[starttrailer + 8..])
 }
 
 #[cfg(test)]

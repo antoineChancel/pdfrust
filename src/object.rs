@@ -87,12 +87,16 @@ impl TryFrom<&mut Iter<'_, u8>> for Name {
 
     fn try_from(mut value: &mut Iter<'_, u8>) -> Result<Self, Self::Error> {
         // Name object starts with regular character /'
-        match CharacterSet::from(value.next().unwrap()) {
-            CharacterSet::Delimiter {
-                char,
-                value: Delimiter::Name,
-            } => (),
-            _ => return Err("Pdf name object should start with a name delimiter"),
+        loop {
+            match CharacterSet::from(value.next().unwrap()) {
+                // Absorb eventual whitespaces before name
+                CharacterSet::WhiteSpace { char, value } => (),
+                CharacterSet::Delimiter {
+                    char: b'/',
+                    value: Delimiter::Name,
+                } => break,
+                _ => return Err("Pdf name object should start with a name delimiter"),
+            }
         }
         let mut name = String::new();
         loop {
@@ -176,9 +180,15 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
         let obj_gen = Numeric::try_from(&mut *byte).unwrap();
         let is_reference = match byte.next() {
             Some(b'R') => true,
-            Some(b'o') => {byte.next().unwrap();byte.next().unwrap();false},
-            Some(c) => panic!("Incoherent character found in third component of indirect object: {c}"),
-            None => panic!("Unable to read third component of indirect object")
+            Some(b'o') => {
+                byte.next().unwrap();
+                byte.next().unwrap();
+                false
+            }
+            Some(c) => {
+                panic!("Incoherent character found in third component of indirect object: {c}")
+            }
+            None => panic!("Unable to read third component of indirect object"),
         };
         byte.next(); // TODO: check whitespace
         IndirectObject {
@@ -191,7 +201,7 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
 
 // extract trailer dictionnary
 #[derive(Debug, PartialEq)]
-struct Trailer {
+pub struct Trailer {
     size: Numeric,
     prev: Option<Numeric>,
     root: IndirectObject,            // Catalogue dictionnary
@@ -202,8 +212,12 @@ struct Trailer {
 
 impl From<&[u8]> for Trailer {
     fn from(bytes: &[u8]) -> Self {
-        let mut size = Numeric { value: 9999};
-        let mut root = IndirectObject { obj_num: Numeric { value: 0 }, obj_gen: Numeric { value: 0 }, is_reference: true };
+        let mut size = Numeric { value: 9999 };
+        let mut root = IndirectObject {
+            obj_num: Numeric { value: 0 },
+            obj_gen: Numeric { value: 0 },
+            is_reference: true,
+        };
         let mut info = None;
         let mut id = None;
         let mut prev = None;
@@ -212,7 +226,6 @@ impl From<&[u8]> for Trailer {
         let mut iter = bytes.iter();
         assert_eq!(*iter.next().unwrap(), b'<');
         assert_eq!(*iter.next().unwrap(), b'<');
-        assert_eq!(*iter.next().unwrap(), b' ');
 
         while let Ok(name) = Name::try_from(&mut iter) {
             match name.value.as_str() {
@@ -266,13 +279,19 @@ mod tests {
     #[test]
     fn read_numeric_object() {
         let mut entry_sample = b"6".iter();
-        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric { value: 6 }));
+        assert_eq!(
+            Numeric::try_from(&mut entry_sample),
+            Ok(Numeric { value: 6 })
+        );
     }
 
     #[test]
     fn read_numeric_object_with_sign() {
         let mut entry_sample = b"+54".iter();
-        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric { value: 54 }));
+        assert_eq!(
+            Numeric::try_from(&mut entry_sample),
+            Ok(Numeric { value: 54 })
+        );
     }
 
     #[test]
@@ -289,16 +308,48 @@ mod tests {
     }
 
     #[test]
+    fn read_trailer_multi_lines() {
+        let mut dict = b"<<\n  /Size 6\n  /Root 1 0 R\n>>".as_slice();
+        assert_eq!(
+            Trailer::from(dict),
+            Trailer {
+                size: Numeric { value: 6 },
+                root: IndirectObject {
+                    obj_num: Numeric { value: 1 },
+                    obj_gen: Numeric { value: 0 },
+                    is_reference: true
+                },
+                info: None,
+                prev: None,
+                encrypt: None,
+                id: None
+            }
+        );
+    }
+
+    #[test]
     fn read_trailer_from_one_line() {
-        let mut dict = b"<< /Size 26 /Root 13 0 R /Info 1 0 R /ID [ <4e949515aaf132498f650e7bde6cdc2f>
-<4e949515aaf132498f650e7bde6cdc2f> ] >>".as_slice();
-        assert_eq!(Trailer::from(dict), Trailer {
-            size: Numeric { value: 26 },
-            root: IndirectObject { obj_num: Numeric{ value: 13 }, obj_gen: Numeric{ value: 0 }, is_reference: true },
-            info: Some(IndirectObject { obj_num: Numeric{ value: 1 }, obj_gen: Numeric{ value: 0 }, is_reference: true }),
-            prev: None,
-            encrypt: None,
-            id: None
-        });
+        let mut dict =
+            b"<< /Size 26 /Root 13 0 R /Info 1 0 R /ID [ <4e949515aaf132498f650e7bde6cdc2f>\n<4e949515aaf132498f650e7bde6cdc2f> ] >>"
+                .as_slice();
+        assert_eq!(
+            Trailer::from(dict),
+            Trailer {
+                size: Numeric { value: 26 },
+                root: IndirectObject {
+                    obj_num: Numeric { value: 13 },
+                    obj_gen: Numeric { value: 0 },
+                    is_reference: true
+                },
+                info: Some(IndirectObject {
+                    obj_num: Numeric { value: 1 },
+                    obj_gen: Numeric { value: 0 },
+                    is_reference: true
+                }),
+                prev: None,
+                encrypt: None,
+                id: None
+            }
+        );
     }
 }
