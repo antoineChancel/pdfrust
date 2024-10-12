@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 
 pub mod object;
 
+type XrefTable = BTreeMap<usize, PdfObject>;
+
 #[derive(Debug)]
 pub enum PdfVersion {
     V1_3,
@@ -109,7 +111,7 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines, table: &mut BTreeMap<usize, PdfObject>) {
+fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
     for object_idx in start..start + size {
@@ -143,7 +145,7 @@ fn xref_slice(stream: &[u8]) -> &str {
     }
 }
 
-fn xref_table_read(mut line: core::str::Lines) -> BTreeMap<usize, PdfObject> {
+fn xref_table_read(mut line: core::str::Lines) -> XrefTable {
     // First line should be xref
     match line.next() {
         Some("xref") => (),
@@ -158,7 +160,7 @@ fn xref_table_read(mut line: core::str::Lines) -> BTreeMap<usize, PdfObject> {
 }
 
 // Parse PDF xref table
-pub fn xref_table(file_stream: &[u8]) -> BTreeMap<usize, PdfObject> {
+pub fn xref_table(file_stream: &[u8]) ->  XrefTable {
     xref_table_read(xref_slice(&file_stream).lines())
 }
 
