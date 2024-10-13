@@ -22,6 +22,12 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
 }
 
 fn startxref(bytes: &[u8]) -> usize {
+
+    // check that bytes is starting with b"xref"
+    if bytes[0..4] == *b"xref" {
+        return 0usize
+    }
+
     let mut res: usize = 0;
     let mut exp = 0;
 
@@ -32,7 +38,7 @@ fn startxref(bytes: &[u8]) -> usize {
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
             ),
-            object::CharacterSet::WhiteSpace { char: _, value } => {
+            object::CharacterSet::WhiteSpace { char, value } => {
                 if value.is_eol() {
                     continue;
                 } else {
@@ -125,6 +131,7 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
 }
 
 fn xref_slice(stream: &[u8]) -> &str {
+
     // Read address of xref after startxref token
     let startxref = startxref(&stream);
     println!("Pdf xref offset read is {startxref}");
@@ -145,7 +152,11 @@ fn xref_slice(stream: &[u8]) -> &str {
     }
 }
 
-fn xref_table_read(mut line: core::str::Lines) -> XrefTable {
+// Parse PDF xref table
+pub fn xref_table(file_stream: &[u8]) -> XrefTable {
+    // Read the cross reference table by lines
+    let mut line = xref_slice(&file_stream).lines();
+
     // First line should be xref
     match line.next() {
         Some("xref") => (),
@@ -157,11 +168,6 @@ fn xref_table_read(mut line: core::str::Lines) -> XrefTable {
     let mut table = BTreeMap::new();
     xref_table_subsection(&mut line, &mut table);
     table
-}
-
-// Parse PDF xref table
-pub fn xref_table(file_stream: &[u8]) ->  XrefTable {
-    xref_table_read(xref_slice(&file_stream).lines())
 }
 
 // Parse PDF trailer
@@ -236,7 +242,7 @@ mod tests {
 
     #[test]
     fn xref_table_valid() {
-        let xref_sample = "xref
+        let xref_sample = b"xref
 0 6
 0000000000 65535 f 
 0000000010 00000 n 
@@ -244,7 +250,7 @@ mod tests {
 0000000173 00000 n 
 0000000301 00000 n 
 0000000380 00000 n";
-        let table = xref_table_read(xref_sample.lines());
+        let table = xref_table(xref_sample);
         assert_eq!(table.len(), 6);
     }
 }
