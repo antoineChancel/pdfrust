@@ -1,4 +1,4 @@
-use rustpdf;
+use pdfrust;
 use std::env;
 
 struct Config {
@@ -25,7 +25,7 @@ fn main() {
     // let file = file.trim_ascii();
 
     // Pdf header with specifications version
-    let version = rustpdf::pdf_version(&file[..8]);
+    let version = pdfrust::pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
 
     // Pdf file ends with %%EOF
@@ -35,10 +35,10 @@ fn main() {
     }
 
     // Cross reference table
-    let xref_table = rustpdf::xref_table(&file);
+    let xref_table = pdfrust::xref_table(&file);
     println!("{xref_table:?}");
 
     // Trailer
-    let trailer = rustpdf::trailer(&file);
+    let trailer = pdfrust::trailer(&file);
     println!("{trailer:?}");
 }
