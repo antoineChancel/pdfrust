@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, slice::Iter};
+use std::slice::Iter;
 
 #[derive(Debug)]
 pub enum WhiteSpace {
@@ -33,7 +33,7 @@ impl WhiteSpace {
 }
 
 #[derive(Debug)]
-enum Delimiter {
+pub enum Delimiter {
     String,
     Array,
     Name,
@@ -85,12 +85,12 @@ struct Name {
 impl TryFrom<&mut Iter<'_, u8>> for Name {
     type Error = &'static str;
 
-    fn try_from(mut value: &mut Iter<'_, u8>) -> Result<Self, Self::Error> {
+    fn try_from(value: &mut Iter<'_, u8>) -> Result<Self, Self::Error> {
         // Name object starts with regular character /'
         loop {
             match CharacterSet::from(value.next().unwrap()) {
                 // Absorb eventual whitespaces before name
-                CharacterSet::WhiteSpace { char, value } => (),
+                CharacterSet::WhiteSpace { char: _, value: _ } => (),
                 CharacterSet::Delimiter {
                     char: b'/',
                     value: Delimiter::Name,
@@ -119,7 +119,7 @@ impl From<&[u8]> for Name {
         // Name object starts with regular character /'
         match CharacterSet::from(c.next().unwrap()) {
             CharacterSet::Delimiter {
-                char,
+                char: _,
                 value: Delimiter::Name,
             } => (),
             _ => panic!("Pdf name object should start with a name delimiter"),
@@ -219,7 +219,7 @@ impl From<&[u8]> for Trailer {
             is_reference: true,
         };
         let mut info = None;
-        let mut id = None;
+        let id = None;
         let mut prev = None;
         let mut encrypt = None;
 
@@ -309,7 +309,7 @@ mod tests {
 
     #[test]
     fn read_trailer_multi_lines() {
-        let mut dict = b"<<\n  /Size 6\n  /Root 1 0 R\n>>".as_slice();
+        let dict = b"<<\n  /Size 6\n  /Root 1 0 R\n>>".as_slice();
         assert_eq!(
             Trailer::from(dict),
             Trailer {
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn read_trailer_from_one_line() {
-        let mut dict =
+        let dict =
             b"<< /Size 26 /Root 13 0 R /Info 1 0 R /ID [ <4e949515aaf132498f650e7bde6cdc2f>\n<4e949515aaf132498f650e7bde6cdc2f> ] >>"
                 .as_slice();
         assert_eq!(

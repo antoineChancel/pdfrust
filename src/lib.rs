@@ -38,7 +38,7 @@ fn startxref(bytes: &[u8]) -> usize {
                 "Bytes before %%EOF should not be a delimiter: {}",
                 char as char
             ),
-            object::CharacterSet::WhiteSpace { char, value } => {
+            object::CharacterSet::WhiteSpace { char: _, value } => {
                 if value.is_eol() {
                     continue;
                 } else {
