@@ -5,10 +5,9 @@ Pdf parser in pure Rust.
 References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf
 
 ```sh
-cargo run data/helloworld.pdf
+cargo run <pdf_file>.pdf
 ```
 
-Unit tests
 ```sh
 cargo test
 ```

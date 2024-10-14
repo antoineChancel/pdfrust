@@ -1,9 +1,12 @@
 use core::{panic, str};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
+
+use object::IndirectObject;
 
 pub mod object;
 
-type XrefTable = BTreeMap<usize, PdfObject>;
+type Offset = usize;
+type XrefTable = HashMap<IndirectObject, Offset>;
 
 #[derive(Debug)]
 pub enum PdfVersion {
@@ -21,31 +24,29 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
-fn startxref(bytes: &[u8]) -> usize {
-
+fn startxref(file: &[u8]) -> usize {
     // check that bytes is starting with b"xref"
-    if bytes[0..4] == *b"xref" {
-        return 0usize
+    if file[0..4] == *b"xref" {
+        return 0usize;
     }
 
     let mut res: usize = 0;
     let mut exp = 0;
 
     // read file bytes in reverse order
-    for i in bytes[..bytes.len() - 5].iter().rev() {
+    for i in file[..file.len() - 5].iter().rev() {
         let is_digit = match object::CharacterSet::from(i) {
-            object::CharacterSet::Delimiter { char, .. } => panic!(
-                "Bytes before %%EOF should not be a delimiter: {}",
-                char as char
-            ),
-            object::CharacterSet::WhiteSpace { char: _, value } => {
+            object::CharacterSet::Delimiter(d) => {
+                panic!("Bytes before %%EOF should not be a delimiter: {:?}", d)
+            }
+            object::CharacterSet::WhiteSpace(value) => {
                 if value.is_eol() {
                     continue;
                 } else {
                     panic!("Bytes before %%EOF should not be delimiters")
                 }
             }
-            object::CharacterSet::Regular { char } => char.is_ascii_digit(),
+            object::CharacterSet::Regular(c) => c.is_ascii_digit(),
         };
 
         if is_digit {
@@ -123,15 +124,21 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
     for object_idx in start..start + size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
-                table.insert(object_idx, o);
+                table.insert(
+                    IndirectObject {
+                        obj_num: object::Numeric(object_idx as u32),
+                        obj_gen: object::Numeric(o.generation as u32),
+                        is_reference: true,
+                    },
+                    o.offset,
+                );
             }
             None => panic!("Unable to read xref entry"),
         }
     }
 }
 
-fn xref_slice(stream: &[u8]) -> &str {
-
+fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
     // Read address of xref after startxref token
     let startxref = startxref(&stream);
     println!("Pdf xref offset read is {startxref}");
@@ -165,7 +172,7 @@ pub fn xref_table(file_stream: &[u8]) -> XrefTable {
     };
 
     // Init xref table
-    let mut table = BTreeMap::new();
+    let mut table = HashMap::new();
     xref_table_subsection(&mut line, &mut table);
     table
 }

@@ -32,6 +32,85 @@ impl WhiteSpace {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum Token<'a> {
+    Numeric(u32),
+    String(&'a [u8]),
+    Name(Name),
+    Comment(&'a [u8]),
+    Stream(&'a [u8]),
+}
+
+struct PdfBytes<'a> {
+    bytes: &'a [u8],
+    curr_idx: usize,
+}
+
+impl<'a> PdfBytes<'a> {
+    fn new(bytes: &'a [u8]) -> PdfBytes<'a> {
+        PdfBytes { bytes, curr_idx: 0 }
+    }
+}
+
+impl<'a> Iterator for PdfBytes<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut token = None;
+        loop {
+            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                CharacterSet::Delimiter(v) => match v {
+                    Delimiter::Comment => {
+                        // read all characters until a line feed or cariage return is met
+                        let begin = self.curr_idx + 1;
+                        loop {
+                            self.curr_idx += 1;
+                            // end of stream
+                            if self.curr_idx >= self.bytes.len() {
+                                break
+                            }
+                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                                CharacterSet::WhiteSpace(WhiteSpace::CarriageReturn) => break,
+                                CharacterSet::WhiteSpace(WhiteSpace::LineFeed) => break,
+                                _ => ()
+                            }
+                        }
+                        token = Some(Token::Comment(&self.bytes[begin..self.curr_idx]));
+                        break;
+                    }
+                    Delimiter::String | Delimiter::Array | Delimiter::Name => (),
+                },
+                // read regular string
+                CharacterSet::Regular(_) => {
+                    let begin = self.curr_idx;
+                    let mut is_numeric = true;
+                    loop {
+                        self.curr_idx += 1;
+                        match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                            CharacterSet::Regular(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => (),
+                            CharacterSet::Regular(_) => is_numeric = false,
+                            _ => break
+                        }
+                    }
+                    if is_numeric {
+                        let mut numeric = 0;
+                        for c in &self.bytes[begin..self.curr_idx] {
+                            numeric = numeric * 10 + char::from(*c).to_digit(10).unwrap()
+                        }
+                        token = Some(Token::Numeric(numeric));
+                    } else {
+                        token = Some(Token::String(&self.bytes[begin..self.curr_idx]));
+                    }
+                    break;
+                }
+                // absorb whitespaces before a new token is met
+                CharacterSet::WhiteSpace(_) => self.curr_idx += 1,
+            }
+        }
+        token
+    }
+}
+
 #[derive(Debug)]
 pub enum Delimiter {
     String,
@@ -54,31 +133,25 @@ impl Delimiter {
 
 #[derive(Debug)]
 pub enum CharacterSet {
-    Regular { char: u8 },
-    Delimiter { char: u8, value: Delimiter },
-    WhiteSpace { char: u8, value: WhiteSpace },
+    Regular(u8),
+    Delimiter(Delimiter),
+    WhiteSpace(WhiteSpace),
 }
 
 impl From<&u8> for CharacterSet {
     fn from(char: &u8) -> CharacterSet {
         match char {
-            0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace {
-                char: *char,
-                value: WhiteSpace::new(*char),
-            },
+            0 | 9 | 10 | 12 | 13 | 32 => CharacterSet::WhiteSpace(WhiteSpace::new(*char)),
             b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%' => {
-                CharacterSet::Delimiter {
-                    char: *char,
-                    value: Delimiter::new(*char),
-                }
+                CharacterSet::Delimiter(Delimiter::new(*char))
             }
-            _ => CharacterSet::Regular { char: *char },
+            _ => CharacterSet::Regular(*char),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-struct Name {
+pub struct Name {
     value: String,
 }
 
@@ -90,11 +163,8 @@ impl TryFrom<&mut Iter<'_, u8>> for Name {
         loop {
             match CharacterSet::from(value.next().unwrap()) {
                 // Absorb eventual whitespaces before name
-                CharacterSet::WhiteSpace { char: _, value: _ } => (),
-                CharacterSet::Delimiter {
-                    char: b'/',
-                    value: Delimiter::Name,
-                } => break,
+                CharacterSet::WhiteSpace(_) => (),
+                CharacterSet::Delimiter(Delimiter::Name) => break,
                 _ => return Err("Pdf name object should start with a name delimiter"),
             }
         }
@@ -105,7 +175,7 @@ impl TryFrom<&mut Iter<'_, u8>> for Name {
                 None => break,
             };
             match CharacterSet::from(curr) {
-                CharacterSet::Regular { char } => name.push(char::from(char)),
+                CharacterSet::Regular(c) => name.push(char::from(c)),
                 _ => break,
             }
         }
@@ -118,10 +188,7 @@ impl From<&[u8]> for Name {
         let mut c = value.iter();
         // Name object starts with regular character /'
         match CharacterSet::from(c.next().unwrap()) {
-            CharacterSet::Delimiter {
-                char: _,
-                value: Delimiter::Name,
-            } => (),
+            CharacterSet::Delimiter(Delimiter::Name) => (),
             _ => panic!("Pdf name object should start with a name delimiter"),
         }
         let mut name = String::new();
@@ -131,7 +198,7 @@ impl From<&[u8]> for Name {
                 None => break,
             };
             match CharacterSet::from(curr) {
-                CharacterSet::Regular { char } => name.push(char::from(char)),
+                CharacterSet::Regular(c) => name.push(char::from(c)),
                 _ => break,
             }
         }
@@ -139,10 +206,8 @@ impl From<&[u8]> for Name {
     }
 }
 
-#[derive(PartialEq, Debug)]
-struct Numeric {
-    value: u32,
-}
+#[derive(PartialEq, Eq, Debug, Hash)]
+pub struct Numeric(pub u32);
 
 impl TryFrom<&mut Iter<'_, u8>> for Numeric {
     type Error = &'static str;
@@ -155,22 +220,20 @@ impl TryFrom<&mut Iter<'_, u8>> for Numeric {
                 None => break,
             };
             match CharacterSet::from(curr) {
-                CharacterSet::Regular { char: b'+' | b'-' } => (),
-                CharacterSet::Regular {
-                    char: b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',
-                } => numeric = numeric * 10 + char::from(*curr).to_digit(10).unwrap(),
+                CharacterSet::Regular (b'+' | b'-') => (),
+                CharacterSet::Regular (b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => numeric = numeric * 10 + char::from(*curr).to_digit(10).unwrap(),
                 _ => break,
             }
         }
-        Ok(Self { value: numeric })
+        Ok(Self(numeric))
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq, Hash)]
 pub struct IndirectObject {
-    obj_num: Numeric,
-    obj_gen: Numeric,
-    is_reference: bool,
+    pub obj_num: Numeric,
+    pub obj_gen: Numeric,
+    pub is_reference: bool,
 }
 
 impl From<&mut Iter<'_, u8>> for IndirectObject {
@@ -204,7 +267,7 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
 pub struct Trailer {
     size: Numeric,
     prev: Option<Numeric>,
-    root: IndirectObject,            // Catalogue dictionnary
+    pub root: IndirectObject,        // Catalogue dictionnary
     encrypt: Option<IndirectObject>, // Encryption dictionnary
     info: Option<IndirectObject>,    // Information dictionary
     id: Option<Vec<String>>,         // An array of two byte-strings constituting a file identifier
@@ -212,10 +275,10 @@ pub struct Trailer {
 
 impl From<&[u8]> for Trailer {
     fn from(bytes: &[u8]) -> Self {
-        let mut size = Numeric { value: 9999 };
+        let mut size = Numeric(9999);
         let mut root = IndirectObject {
-            obj_num: Numeric { value: 0 },
-            obj_gen: Numeric { value: 0 },
+            obj_num: Numeric(0),
+            obj_gen: Numeric(0),
             is_reference: true,
         };
         let mut info = None;
@@ -238,6 +301,7 @@ impl From<&[u8]> for Trailer {
                 a => panic!("Unexpected key was found in trailer {a}"),
             };
         }
+
         Trailer {
             size,
             prev,
@@ -246,6 +310,59 @@ impl From<&[u8]> for Trailer {
             info,
             id,
         }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+// Defined in page 139;  commented is to be implemented
+struct Catalog {
+    // version: Option<Name>, // The version of the PDF specification to which the document conforms (for example, 1.4)
+    pages: IndirectObject, // The page tree node that is the root of the document’s page tree
+                           // page_labels: Option<IndirectObject>,
+                           // names: Option<IndirectObject>,
+                           // dests: Option<IndirectObject>,
+                           // viewer_preferences: Option<IndirectObject>,
+                           // page_layout: Option<Name>,
+                           // page_mode: Option<Name>,
+                           // outlines: Option<IndirectObject>,
+                           // threads: Vec<String>,
+                           // open_action: Option<IndirectObject>,
+                           // aa: Option<IndirectObject>,
+                           // uri: Option<IndirectObject>,
+                           // acro_form: Option<IndirectObject>
+}
+
+impl From<&[u8]> for Catalog {
+    fn from(bytes: &[u8]) -> Self {
+        let mut pages = IndirectObject {
+            obj_num: Numeric(0),
+            obj_gen: Numeric(0),
+            is_reference: true,
+        };
+
+        let mut iter = bytes.iter();
+
+        // Read object header
+        IndirectObject::try_from(&mut iter).unwrap();
+
+        assert_eq!(*iter.next().unwrap(), b'<');
+        assert_eq!(*iter.next().unwrap(), b'<');
+
+        while let Ok(name) = Name::try_from(&mut iter) {
+            match name.value.as_str() {
+                "Pages" => pages = IndirectObject::try_from(&mut iter).unwrap(),
+                "Type" => {
+                    assert_eq!(
+                        Name::try_from(&mut iter).unwrap(),
+                        Name {
+                            value: String::from("Catalog")
+                        }
+                    )
+                }
+                a => panic!("Unexpected key was found in catalog {a}"),
+            };
+        }
+        Catalog { pages }
     }
 }
 
@@ -279,19 +396,13 @@ mod tests {
     #[test]
     fn read_numeric_object() {
         let mut entry_sample = b"6".iter();
-        assert_eq!(
-            Numeric::try_from(&mut entry_sample),
-            Ok(Numeric { value: 6 })
-        );
+        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric(6)));
     }
 
     #[test]
     fn read_numeric_object_with_sign() {
         let mut entry_sample = b"+54".iter();
-        assert_eq!(
-            Numeric::try_from(&mut entry_sample),
-            Ok(Numeric { value: 54 })
-        );
+        assert_eq!(Numeric::try_from(&mut entry_sample), Ok(Numeric(54)));
     }
 
     #[test]
@@ -300,8 +411,8 @@ mod tests {
         assert_eq!(
             IndirectObject::from(&mut object_ref_sample),
             IndirectObject {
-                obj_num: Numeric { value: 1 },
-                obj_gen: Numeric { value: 0 },
+                obj_num: Numeric(1),
+                obj_gen: Numeric(0),
                 is_reference: true,
             }
         );
@@ -313,10 +424,10 @@ mod tests {
         assert_eq!(
             Trailer::from(dict),
             Trailer {
-                size: Numeric { value: 6 },
+                size: Numeric(6),
                 root: IndirectObject {
-                    obj_num: Numeric { value: 1 },
-                    obj_gen: Numeric { value: 0 },
+                    obj_num: Numeric(1),
+                    obj_gen: Numeric(0),
                     is_reference: true
                 },
                 info: None,
@@ -335,15 +446,15 @@ mod tests {
         assert_eq!(
             Trailer::from(dict),
             Trailer {
-                size: Numeric { value: 26 },
+                size: Numeric(26),
                 root: IndirectObject {
-                    obj_num: Numeric { value: 13 },
-                    obj_gen: Numeric { value: 0 },
+                    obj_num: Numeric(13),
+                    obj_gen: Numeric(0),
                     is_reference: true
                 },
                 info: Some(IndirectObject {
-                    obj_num: Numeric { value: 1 },
-                    obj_gen: Numeric { value: 0 },
+                    obj_num: Numeric(1),
+                    obj_gen: Numeric(0),
                     is_reference: true
                 }),
                 prev: None,
@@ -351,5 +462,32 @@ mod tests {
                 id: None
             }
         );
+    }
+
+    //     #[test]
+    //     fn test_catalog() {
+    //         let catalog = Catalog::from(b"1 0 obj  % entry point
+    // <<
+    //   /Type /Catalog
+    //   /Pages 2 0 R
+    // >>
+    // endobj".as_slice());
+    //     assert_eq!(catalog, Catalog {
+    //         pages: IndirectObject {
+    //             obj_num: Numeric(2),
+    //             obj_gen: Numeric(0),
+    //             is_reference: true
+    //         }
+    //     })
+    //     }
+
+    #[test]
+    fn test_pdfbytes_iterator() {
+        let mut pdf = PdfBytes::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
+        assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7")));
+        assert_eq!(pdf.next(), Some(Token::Numeric(1)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
+        assert_eq!(pdf.next(), Some(Token::String(b"obj")));
+        assert_eq!(pdf.next(), Some(Token::Comment(b" entry point")));
     }
 }

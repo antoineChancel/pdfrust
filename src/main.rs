@@ -21,6 +21,7 @@ fn main() {
     let config = Config::new(env::args());
     let file = std::fs::read(config.path).unwrap();
 
+    file.iter();
     // Remove potential whitespaces at begin or end
     // let file = file.trim_ascii();
 
@@ -41,4 +42,7 @@ fn main() {
     // Trailer
     let trailer = pdfrust::trailer(&file);
     println!("{trailer:?}");
+
+    // Catalog
+    let catalog_idx = xref_table.get(&trailer.root).unwrap();
 }
