@@ -121,7 +121,22 @@ impl<'a> Iterator for PdfBytes<'a> {
                         break;
                     }
                     // TODO: to be treated
-                    Delimiter::String => break,
+                    Delimiter::String => {
+                        let begin = self.curr_idx + 1;
+                        loop {
+                            self.curr_idx += 1;
+                            // end of stream
+                            if self.curr_idx >= self.bytes.len() {
+                                break;
+                            }
+                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                                CharacterSet::Delimiter(Delimiter::String) => (),
+                                _ => (),
+                            }
+                        }
+                        token = Some(Token::Name(&self.bytes[begin..self.curr_idx]));
+                        break;
+                    },
                 },
                 // read regular string
                 CharacterSet::Regular(_) => {
@@ -292,10 +307,12 @@ impl From<&mut PdfBytes<'_>> for IndirectObject {
     fn from(byte: &mut PdfBytes<'_>) -> Self {
         let obj_num = match byte.next() {
             Some(Token::Numeric(n)) => Numeric(n),
+            Some(t) => panic!("Unable to read components of indirect object; found incorrect first token {t:?}"),
             _ => panic!("Unable to read first component of indirect object"),
         };
         let obj_gen = match byte.next() {
             Some(Token::Numeric(n)) => Numeric(n),
+            Some(t) => panic!("Unable to read components of indirect object; found incorrect second token {t:?}"),
             _ => panic!("Unable to read second component of indirect object"),
         };
         let is_reference = match byte.next() {
@@ -347,7 +364,7 @@ pub struct Trailer {
     prev: Option<Numeric>,
     pub root: IndirectObject,        // Catalogue dictionnary
     encrypt: Option<IndirectObject>, // Encryption dictionnary
-    info: Option<IndirectObject>,    // Information dictionary
+    pub info: Option<IndirectObject>,    // Information dictionary
     id: Option<Vec<String>>,         // An array of two byte-strings constituting a file identifier
 }
 
@@ -393,7 +410,7 @@ impl From<&[u8]> for Trailer {
 
 #[derive(Debug, PartialEq)]
 // Defined in page 139;  commented is to be implemented
-struct Catalog {
+pub struct Catalog {
     // version: Option<Name>, // The version of the PDF specification to which the document conforms (for example, 1.4)
     pages: Option<IndirectObject>, // The page tree node that is the root of the document’s page tree
                            // page_labels: Option<IndirectObject>,
@@ -435,6 +452,76 @@ impl From<&[u8]> for Catalog {
             };
         }
         Catalog { pages }
+    }
+}
+
+#[derive(Debug)]
+pub struct Info<'a> {
+    title: Option<&'a str>,
+    author: Option<&'a str>,
+    creator: Option<&'a str>,
+    producer: Option<&'a str>,
+    creation_date: Option<&'a str>,
+    mod_date: Option<&'a str>,
+}
+
+// 1 0 obj
+// << /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)
+// /CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')
+// >>
+// endobj
+impl<'a> From<&'a [u8]> for Info<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        let mut pdf = PdfBytes::new(bytes);
+
+        // Consume object header
+        IndirectObject::from(&mut pdf);
+
+        match pdf.next() {
+            Some(Token::DictBegin) => (),
+            Some(t) => panic!("Info should be a dictionnary; found {t:?}"),
+            None => panic!("Info should be a dictionnary"),
+        };
+
+        let mut title= None;
+        let mut author= None;
+        let mut creator= None;
+        let mut producer= None;
+        let mut creation_date= None;
+        let mut mod_date= None;
+
+
+        while let Some(t) = pdf.next() {
+            match t {
+                Token::Name(b"Title") => match pdf.next() {
+                    Some(Token::String(s)) => title = std::str::from_utf8(s).ok(),
+                    _ => panic!("Title should be a string"),
+                },
+                Token::Name(b"Author") => match pdf.next() {
+                    Some(Token::String(s)) => author = std::str::from_utf8(s).ok(),
+                    _ => panic!("Author should be a string"),
+                },
+                Token::Name(b"Creator") => match pdf.next() {
+                    Some(Token::String(s)) => creator = std::str::from_utf8(s).ok(),
+                    _ => panic!("Creator should be a string"),
+                },
+                Token::Name(b"Producer") => match pdf.next() {
+                    Some(Token::String(s)) => producer = std::str::from_utf8(s).ok(),
+                    _ => panic!("Producter should be a string"),
+                },
+                Token::Name(b"CreationDate") => match pdf.next() {
+                    Some(Token::String(s)) => creation_date = std::str::from_utf8(s).ok(),
+                    _ => panic!("CreationDate should be a string"),
+                },
+                Token::Name(b"Moddate") => match pdf.next() {
+                    Some(Token::String(s)) => mod_date = std::str::from_utf8(s).ok(),
+                    _ => panic!("Modification date should be a string"),
+                },
+                Token::DictEnd => break,
+                a => panic!("Unexpected key was found in info dictionnary {a:?}"),
+            };
+        }
+        Info { title, author, creator, producer, creation_date, mod_date }
     }
 }
 

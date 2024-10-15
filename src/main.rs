@@ -21,7 +21,6 @@ fn main() {
     let config = Config::new(env::args());
     let file = std::fs::read(config.path).unwrap();
 
-    file.iter();
     // Remove potential whitespaces at begin or end
     // let file = file.trim_ascii();
 
@@ -45,4 +44,18 @@ fn main() {
 
     // Catalog
     let catalog_idx = xref_table.get(&trailer.root).unwrap();
+    println!("{:?}", std::str::from_utf8(&file[*catalog_idx..*catalog_idx+30]));
+    let catalog = pdfrust::catalog(&file[*catalog_idx..]);
+    println!("{catalog:?}");
+
+    // Information
+    match trailer.info {
+        Some(info) => {
+            let info_idx = xref_table.get(&info).unwrap();
+            let info = pdfrust::info(&file[*info_idx..]);
+            println!("{info:?}");
+        }
+        None => println!("No info dictionary found"),
+    }
+
 }

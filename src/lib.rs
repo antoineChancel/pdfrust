@@ -24,45 +24,6 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
-fn startxref(file: &[u8]) -> usize {
-    // check that bytes is starting with b"xref"
-    if file[0..4] == *b"xref" {
-        return 0usize;
-    }
-
-    let mut res: usize = 0;
-    let mut exp = 0;
-
-    // read file bytes in reverse order
-    for i in file[..file.len() - 5].iter().rev() {
-        let is_digit = match object::CharacterSet::from(i) {
-            object::CharacterSet::Delimiter(d) => {
-                panic!("Bytes before %%EOF should not be a delimiter: {:?}", d)
-            }
-            object::CharacterSet::WhiteSpace(value) => {
-                if value.is_eol() {
-                    continue;
-                } else {
-                    panic!("Bytes before %%EOF should not be delimiters")
-                }
-            }
-            object::CharacterSet::Regular(c) => c.is_ascii_digit(),
-        };
-
-        if is_digit {
-            let digit = char::from(*i).to_digit(10).unwrap() as usize;
-            res += digit * 10_usize.pow(exp);
-            exp += 1;
-        }
-
-        // termination condition
-        if !is_digit && res > 0 {
-            break;
-        }
-    }
-    res
-}
-
 fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
     // Try reading first object idx and number of object of the xref subsection
     let mut token = line.split_whitespace();
@@ -139,28 +100,16 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
 }
 
 fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
-    // Read address of xref after startxref token
-    let startxref = startxref(&stream);
-    println!("Pdf xref offset read is {startxref}");
-
-    // Extract xref table with iteration on lines
-    match str::from_utf8(&stream[startxref..]) {
-        Ok(e) => e,
-        Err(_) => {
-            println!("Unable to read xref table from startxref position, PDF might be corrupted");
-            println!("Looking for xref in pdf...");
-            // Look for a byte chain with xref encoded
-            let startxref = match stream.windows(4).position(|w| w == b"xref") {
-                Some(i) => i,
-                None => panic!("Missing xref token in the entire PDF"),
-            };
-            str::from_utf8(&stream[startxref..]).unwrap()
-        }
-    }
+    let startxref = match stream.windows(4).position(|w| w == b"xref") {
+        Some(i) => i,
+        None => panic!("Missing xref token in the entire PDF"),
+    };
+    str::from_utf8(&stream[startxref..]).unwrap()
 }
 
 // Parse PDF xref table
 pub fn xref_table(file_stream: &[u8]) -> XrefTable {
+
     // Read the cross reference table by lines
     let mut line = xref_slice(&file_stream).lines();
 
@@ -189,17 +138,18 @@ pub fn trailer(file_stream: &[u8]) -> object::Trailer {
     object::Trailer::from(&file_stream[starttrailer + 8..])
 }
 
+pub fn catalog(file_stream: &[u8]) -> object::Catalog {
+    object::Catalog::from(file_stream)
+}
+
+pub fn info(file_stream: &[u8]) -> object::Info {
+    object::Info::from(file_stream)
+}
+
 #[cfg(test)]
 mod tests {
 
     use super::*;
-
-    #[test]
-    fn xref_adress() {
-        let end_chars = b"startxref\n\r492\n\r%%EOF";
-        let result = startxref(end_chars);
-        assert_eq!(result, 492);
-    }
 
     #[test]
     fn xref_subsection_header() {
