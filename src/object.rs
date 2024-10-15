@@ -469,7 +469,7 @@ impl From<&[u8]> for Catalog {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Info<'a> {
     title: Option<&'a str>,
     author: Option<&'a str>,
@@ -479,11 +479,6 @@ pub struct Info<'a> {
     mod_date: Option<&'a str>,
 }
 
-// 1 0 obj
-// << /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)
-// /CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')
-// >>
-// endobj
 impl<'a> From<&'a [u8]> for Info<'a> {
     fn from(bytes: &'a [u8]) -> Self {
         let mut pdf = PdfBytes::new(bytes);
@@ -691,5 +686,19 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::String(b"endobj")));
+    }
+
+    #[test]
+    fn test_info_dict_1() {
+        let info_object = b"1 0 obj\n<< /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)\n/CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')\n>>\nendobj";
+        let info = Info::from(info_object.as_slice());
+        assert_eq!(info, Info {
+            title: Some("sample"),
+            author: Some("Philip Hutchison"),
+            creator: Some("Pages"),
+            producer: Some("Mac OS X 10.5.4 Quartz PDFContext"),
+            creation_date: Some("D:20080701052447Z00'00'"),
+            mod_date: Some("D:20080701052447Z00'00'")
+        });
     }
 }
