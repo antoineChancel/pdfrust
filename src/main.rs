@@ -21,9 +21,6 @@ fn main() {
     let config = Config::new(env::args());
     let file = std::fs::read(config.path).unwrap();
 
-    // Remove potential whitespaces at begin or end
-    // let file = file.trim_ascii();
-
     // Pdf header with specifications version
     let version = pdfrust::pdf_version(&file[..8]);
     println!("Pdf version {version:?}");
