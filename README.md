@@ -28,6 +28,11 @@ Make sure that unit and integration tests pass.
 cargo test
 ```
 
+### Top Contributors
+<a href="https://github.com/antoineChancel/pdfrust/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=antoineChancel/pdfrust" alt="contrib.rocks image" />
+</a>
+
 ## License
 
 Distributed under the GNU GPL v3.0 License. See LICENSE.txt for more information.
