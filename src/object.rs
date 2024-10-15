@@ -1,7 +1,7 @@
 use core::panic;
 use std::slice::Iter;
 
-use tokenizer::{CharacterSet, Delimiter, Token, PdfBytes};
+use tokenizer::{CharacterSet, Delimiter, PdfBytes, Token};
 
 mod tokenizer;
 
@@ -98,12 +98,16 @@ impl From<&mut PdfBytes<'_>> for IndirectObject {
     fn from(byte: &mut PdfBytes<'_>) -> Self {
         let obj_num = match byte.next() {
             Some(Token::Numeric(n)) => Numeric(n),
-            Some(t) => panic!("Unable to read components of indirect object; found incorrect first token {t:?}"),
+            Some(t) => panic!(
+                "Unable to read components of indirect object; found incorrect first token {t:?}"
+            ),
             _ => panic!("Unable to read first component of indirect object"),
         };
         let obj_gen = match byte.next() {
             Some(Token::Numeric(n)) => Numeric(n),
-            Some(t) => panic!("Unable to read components of indirect object; found incorrect second token {t:?}"),
+            Some(t) => panic!(
+                "Unable to read components of indirect object; found incorrect second token {t:?}"
+            ),
             _ => panic!("Unable to read second component of indirect object"),
         };
         let is_reference = match byte.next() {
@@ -153,10 +157,10 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
 pub struct Trailer {
     size: Numeric,
     prev: Option<Numeric>,
-    pub root: IndirectObject,        // Catalogue dictionnary
-    encrypt: Option<IndirectObject>, // Encryption dictionnary
-    pub info: Option<IndirectObject>,    // Information dictionary
-    id: Option<Vec<String>>,         // An array of two byte-strings constituting a file identifier
+    pub root: IndirectObject,         // Catalogue dictionnary
+    encrypt: Option<IndirectObject>,  // Encryption dictionnary
+    pub info: Option<IndirectObject>, // Information dictionary
+    id: Option<Vec<String>>,          // An array of two byte-strings constituting a file identifier
 }
 
 impl From<&[u8]> for Trailer {
@@ -218,7 +222,7 @@ impl From<&[u8]> for Catalog {
             None => panic!("Catalog should be a dictionnary"),
         };
 
-        let mut pages= None;
+        let mut pages = None;
 
         while let Some(t) = pdf.next() {
             match t {
@@ -257,12 +261,12 @@ impl<'a> From<&'a [u8]> for Info<'a> {
             None => panic!("Info should be a dictionnary"),
         };
 
-        let mut title= None;
-        let mut author= None;
-        let mut creator= None;
-        let mut producer= None;
-        let mut creation_date= None;
-        let mut mod_date= None;
+        let mut title = None;
+        let mut author = None;
+        let mut creator = None;
+        let mut producer = None;
+        let mut creation_date = None;
+        let mut mod_date = None;
 
         while let Some(t) = pdf.next() {
             match t {
@@ -292,13 +296,22 @@ impl<'a> From<&'a [u8]> for Info<'a> {
                     Some(Token::LitteralString(s)) => mod_date = std::str::from_utf8(s).ok(),
                     _ => panic!("Modification date should be a string"),
                 },
-                Token::Name(b"PTEX.Fullbanner") => {pdf.next();},
+                Token::Name(b"PTEX.Fullbanner") => {
+                    pdf.next();
+                }
                 Token::Name(n) => println!("Key {:?} is not implemented", std::str::from_utf8(n)),
                 Token::DictEnd => break,
                 t => panic!("Unexpected key was found in info dictionnary {t:?}"),
             };
         }
-        Info { title, author, creator, producer, creation_date, mod_date }
+        Info {
+            title,
+            author,
+            creator,
+            producer,
+            creation_date,
+            mod_date,
+        }
     }
 }
 
@@ -419,13 +432,16 @@ mod tests {
     fn test_info_dict_1() {
         let info_object = b"1 0 obj\n<< /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)\n/CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')\n>>\nendobj";
         let info = Info::from(info_object.as_slice());
-        assert_eq!(info, Info {
-            title: Some("sample"),
-            author: Some("Philip Hutchison"),
-            creator: Some("Pages"),
-            producer: Some("Mac OS X 10.5.4 Quartz PDFContext"),
-            creation_date: Some("D:20080701052447Z00'00'"),
-            mod_date: Some("D:20080701052447Z00'00'")
-        });
+        assert_eq!(
+            info,
+            Info {
+                title: Some("sample"),
+                author: Some("Philip Hutchison"),
+                creator: Some("Pages"),
+                producer: Some("Mac OS X 10.5.4 Quartz PDFContext"),
+                creation_date: Some("D:20080701052447Z00'00'"),
+                mod_date: Some("D:20080701052447Z00'00'")
+            }
+        );
     }
 }

@@ -52,5 +52,4 @@ fn main() {
         }
         None => println!("No info dictionary found"),
     }
-
 }

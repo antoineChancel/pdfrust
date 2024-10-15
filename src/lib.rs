@@ -100,6 +100,7 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
 }
 
 fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
+    // improve this by reading the startxref on last line
     let startxref = match stream.windows(4).position(|w| w == b"xref") {
         Some(i) => i,
         None => panic!("Missing xref token in the entire PDF"),
@@ -109,7 +110,6 @@ fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
 
 // Parse PDF xref table
 pub fn xref_table(file_stream: &[u8]) -> XrefTable {
-
     // Read the cross reference table by lines
     let mut line = xref_slice(&file_stream).lines();
 

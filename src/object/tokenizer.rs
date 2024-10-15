@@ -179,14 +179,14 @@ impl<'a> Iterator for PdfBytes<'a> {
                                     if opened_parathesis == closed_parathesis {
                                         break;
                                     }
-                                },
+                                }
                                 _ => (),
                             }
                         }
                         token = Some(Token::LitteralString(&self.bytes[begin..self.curr_idx]));
                         self.curr_idx += 1; // skip closing parenthesis
                         break;
-                    },
+                    }
                 },
                 // read regular string
                 CharacterSet::Regular(_) => {
@@ -218,7 +218,7 @@ impl<'a> Iterator for PdfBytes<'a> {
             }
         }
         match token {
-            Some(Token::Comment(_) ) => self.next(), //skip somment if any
+            Some(Token::Comment(_)) => self.next(), //skip somment if any
             Some(token) => Some(token),
             None => None,
         }
@@ -278,5 +278,4 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::String(b"endobj")));
     }
-
 }
