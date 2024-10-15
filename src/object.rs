@@ -36,9 +36,13 @@ impl WhiteSpace {
 enum Token<'a> {
     Numeric(u32),
     String(&'a [u8]),
-    Name(Name),
+    Name(&'a [u8]),
     Comment(&'a [u8]),
     Stream(&'a [u8]),
+    DictBegin,
+    DictEnd,
+    ArrayBegin,
+    ArrayEnd,
 }
 
 struct PdfBytes<'a> {
@@ -58,6 +62,9 @@ impl<'a> Iterator for PdfBytes<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         let mut token = None;
         loop {
+            if self.curr_idx >= self.bytes.len() {
+                break;
+            }
             match CharacterSet::from(&self.bytes[self.curr_idx]) {
                 CharacterSet::Delimiter(v) => match v {
                     Delimiter::Comment => {
@@ -67,30 +74,68 @@ impl<'a> Iterator for PdfBytes<'a> {
                             self.curr_idx += 1;
                             // end of stream
                             if self.curr_idx >= self.bytes.len() {
-                                break
+                                break;
                             }
                             match CharacterSet::from(&self.bytes[self.curr_idx]) {
                                 CharacterSet::WhiteSpace(WhiteSpace::CarriageReturn) => break,
                                 CharacterSet::WhiteSpace(WhiteSpace::LineFeed) => break,
-                                _ => ()
+                                _ => (),
                             }
                         }
                         token = Some(Token::Comment(&self.bytes[begin..self.curr_idx]));
                         break;
                     }
-                    Delimiter::String | Delimiter::Array | Delimiter::Name => (),
+                    Delimiter::Array => {
+                        if &self.bytes[self.curr_idx..self.curr_idx + 2] == b"<<".as_ref() {
+                            self.curr_idx += 2;
+                            token = Some(Token::DictBegin);
+                            break;
+                        } else if &self.bytes[self.curr_idx..self.curr_idx + 2] == b">>".as_ref() {
+                            self.curr_idx += 2;
+                            token = Some(Token::DictEnd);
+                            break;
+                        } else if self.bytes[self.curr_idx] == b'[' {
+                            self.curr_idx += 1;
+                            token = Some(Token::ArrayBegin);
+                            break;
+                        } else if self.bytes[self.curr_idx] == b']' {
+                            self.curr_idx += 1;
+                            token = Some(Token::ArrayEnd);
+                            break;
+                        }
+                    }
+                    Delimiter::Name => {
+                        let begin = self.curr_idx + 1;
+                        loop {
+                            self.curr_idx += 1;
+                            // end of stream
+                            if self.curr_idx >= self.bytes.len() {
+                                break;
+                            }
+                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                                CharacterSet::Regular(_) => (),
+                                _ => break,
+                            }
+                        }
+                        token = Some(Token::Name(&self.bytes[begin..self.curr_idx]));
+                        break;
+                    }
+                    // TODO: to be treated
+                    Delimiter::String => break,
                 },
                 // read regular string
                 CharacterSet::Regular(_) => {
                     let begin = self.curr_idx;
                     let mut is_numeric = true;
                     loop {
-                        self.curr_idx += 1;
                         match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                            CharacterSet::Regular(b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => (),
+                            CharacterSet::Regular(
+                                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',
+                            ) => (),
                             CharacterSet::Regular(_) => is_numeric = false,
-                            _ => break
+                            _ => break,
                         }
+                        self.curr_idx += 1;
                     }
                     if is_numeric {
                         let mut numeric = 0;
@@ -107,7 +152,11 @@ impl<'a> Iterator for PdfBytes<'a> {
                 CharacterSet::WhiteSpace(_) => self.curr_idx += 1,
             }
         }
-        token
+        match token {
+            Some(Token::Comment(_) ) => self.next(), //skip somment if any
+            Some(token) => Some(token),
+            None => None,
+        }
     }
 }
 
@@ -220,8 +269,10 @@ impl TryFrom<&mut Iter<'_, u8>> for Numeric {
                 None => break,
             };
             match CharacterSet::from(curr) {
-                CharacterSet::Regular (b'+' | b'-') => (),
-                CharacterSet::Regular (b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9') => numeric = numeric * 10 + char::from(*curr).to_digit(10).unwrap(),
+                CharacterSet::Regular(b'+' | b'-') => (),
+                CharacterSet::Regular(
+                    b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',
+                ) => numeric = numeric * 10 + char::from(*curr).to_digit(10).unwrap(),
                 _ => break,
             }
         }
@@ -234,6 +285,33 @@ pub struct IndirectObject {
     pub obj_num: Numeric,
     pub obj_gen: Numeric,
     pub is_reference: bool,
+}
+
+impl From<&mut PdfBytes<'_>> for IndirectObject {
+    // Read bytes b"1 0 R: to IndirectRef
+    fn from(byte: &mut PdfBytes<'_>) -> Self {
+        let obj_num = match byte.next() {
+            Some(Token::Numeric(n)) => Numeric(n),
+            _ => panic!("Unable to read first component of indirect object"),
+        };
+        let obj_gen = match byte.next() {
+            Some(Token::Numeric(n)) => Numeric(n),
+            _ => panic!("Unable to read second component of indirect object"),
+        };
+        let is_reference = match byte.next() {
+            Some(Token::String(b"R")) => true,
+            Some(Token::String(b"obj")) => false,
+            Some(c) => {
+                panic!("Incoherent character found in third component of indirect object: {c:?}")
+            }
+            None => panic!("Unable to read third component of indirect object"),
+        };
+        IndirectObject {
+            obj_num,
+            obj_gen,
+            is_reference,
+        }
+    }
 }
 
 impl From<&mut Iter<'_, u8>> for IndirectObject {
@@ -317,7 +395,7 @@ impl From<&[u8]> for Trailer {
 // Defined in page 139;  commented is to be implemented
 struct Catalog {
     // version: Option<Name>, // The version of the PDF specification to which the document conforms (for example, 1.4)
-    pages: IndirectObject, // The page tree node that is the root of the document’s page tree
+    pages: Option<IndirectObject>, // The page tree node that is the root of the document’s page tree
                            // page_labels: Option<IndirectObject>,
                            // names: Option<IndirectObject>,
                            // dests: Option<IndirectObject>,
@@ -334,32 +412,26 @@ struct Catalog {
 
 impl From<&[u8]> for Catalog {
     fn from(bytes: &[u8]) -> Self {
-        let mut pages = IndirectObject {
-            obj_num: Numeric(0),
-            obj_gen: Numeric(0),
-            is_reference: true,
+        let mut pdf = PdfBytes::new(bytes);
+        // Consume object header
+        IndirectObject::from(&mut pdf);
+
+        match pdf.next() {
+            Some(Token::DictBegin) => (),
+            Some(t) => panic!("Catalog should be a dictionnary; found {t:?}"),
+            None => panic!("Catalog should be a dictionnary"),
         };
 
-        let mut iter = bytes.iter();
+        let mut pages= None;
 
-        // Read object header
-        IndirectObject::try_from(&mut iter).unwrap();
-
-        assert_eq!(*iter.next().unwrap(), b'<');
-        assert_eq!(*iter.next().unwrap(), b'<');
-
-        while let Ok(name) = Name::try_from(&mut iter) {
-            match name.value.as_str() {
-                "Pages" => pages = IndirectObject::try_from(&mut iter).unwrap(),
-                "Type" => {
-                    assert_eq!(
-                        Name::try_from(&mut iter).unwrap(),
-                        Name {
-                            value: String::from("Catalog")
-                        }
-                    )
+        while let Some(t) = pdf.next() {
+            match t {
+                Token::Name(b"Type") => assert_eq!(pdf.next(), Some(Token::Name(b"Catalog"))),
+                Token::Name(b"Pages") => {
+                    pages = Some(IndirectObject::from(&mut pdf));
                 }
-                a => panic!("Unexpected key was found in catalog {a}"),
+                Token::DictEnd => break,
+                a => panic!("Unexpected key was found in dictionnary catalog {a:?}"),
             };
         }
         Catalog { pages }
@@ -464,30 +536,56 @@ mod tests {
         );
     }
 
-    //     #[test]
-    //     fn test_catalog() {
-    //         let catalog = Catalog::from(b"1 0 obj  % entry point
-    // <<
-    //   /Type /Catalog
-    //   /Pages 2 0 R
-    // >>
-    // endobj".as_slice());
-    //     assert_eq!(catalog, Catalog {
-    //         pages: IndirectObject {
-    //             obj_num: Numeric(2),
-    //             obj_gen: Numeric(0),
-    //             is_reference: true
-    //         }
-    //     })
-    //     }
+    #[test]
+    fn test_catalog() {
+        let catalog = Catalog::from(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice());
+        assert_eq!(
+            catalog,
+            Catalog {
+                pages: Some(IndirectObject {
+                    obj_num: Numeric(2),
+                    obj_gen: Numeric(0),
+                    is_reference: true
+                })
+            }
+        )
+    }
 
     #[test]
     fn test_pdfbytes_iterator() {
         let mut pdf = PdfBytes::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
-        assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7")));
+        // assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7")));
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::String(b"obj")));
-        assert_eq!(pdf.next(), Some(Token::Comment(b" entry point")));
+        // assert_eq!(pdf.next(), Some(Token::Comment(b" entry point")));
+    }
+
+    #[test]
+    fn test_pdfbytes_iterator_2() {
+        let mut pdf = PdfBytes::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
+        assert_eq!(pdf.next(), Some(Token::Numeric(2)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
+        assert_eq!(pdf.next(), Some(Token::String(b"obj")));
+        assert_eq!(pdf.next(), Some(Token::DictBegin));
+        assert_eq!(pdf.next(), Some(Token::Name(b"Type")));
+        assert_eq!(pdf.next(), Some(Token::Name(b"Pages")));
+        assert_eq!(pdf.next(), Some(Token::Name(b"MediaBox")));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(200)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(200)));
+        assert_eq!(pdf.next(), Some(Token::ArrayEnd));
+        assert_eq!(pdf.next(), Some(Token::Name(b"Count")));
+        assert_eq!(pdf.next(), Some(Token::Numeric(1)));
+        assert_eq!(pdf.next(), Some(Token::Name(b"Kids")));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(3)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
+        assert_eq!(pdf.next(), Some(Token::String(b"R")));
+        assert_eq!(pdf.next(), Some(Token::ArrayEnd));
+        assert_eq!(pdf.next(), Some(Token::DictEnd));
+        assert_eq!(pdf.next(), Some(Token::String(b"endobj")));
     }
 }
