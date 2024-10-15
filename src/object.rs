@@ -36,6 +36,8 @@ impl WhiteSpace {
 enum Token<'a> {
     Numeric(u32),
     String(&'a [u8]),
+    LitteralString(&'a [u8]),
+    HexString(&'a [u8]),
     Name(&'a [u8]),
     Comment(&'a [u8]),
     Stream(&'a [u8]),
@@ -123,6 +125,8 @@ impl<'a> Iterator for PdfBytes<'a> {
                     // TODO: to be treated
                     Delimiter::String => {
                         let begin = self.curr_idx + 1;
+                        let mut opened_parathesis: u8 = 1;
+                        let mut closed_parathesis: u8 = 0;
                         loop {
                             self.curr_idx += 1;
                             // end of stream
@@ -130,11 +134,21 @@ impl<'a> Iterator for PdfBytes<'a> {
                                 break;
                             }
                             match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                                CharacterSet::Delimiter(Delimiter::String) => (),
+                                CharacterSet::Delimiter(Delimiter::String) => {
+                                    if self.bytes[self.curr_idx] == b'(' {
+                                        opened_parathesis += 1;
+                                    } else if self.bytes[self.curr_idx] == b')' {
+                                        closed_parathesis += 1;
+                                    }
+                                    if opened_parathesis == closed_parathesis {
+                                        break;
+                                    }
+                                },
                                 _ => (),
                             }
                         }
-                        token = Some(Token::Name(&self.bytes[begin..self.curr_idx]));
+                        token = Some(Token::LitteralString(&self.bytes[begin..self.curr_idx]));
+                        self.curr_idx += 1; // skip closing parenthesis
                         break;
                     },
                 },
@@ -490,35 +504,38 @@ impl<'a> From<&'a [u8]> for Info<'a> {
         let mut creation_date= None;
         let mut mod_date= None;
 
-
         while let Some(t) = pdf.next() {
             match t {
                 Token::Name(b"Title") => match pdf.next() {
-                    Some(Token::String(s)) => title = std::str::from_utf8(s).ok(),
+                    Some(Token::LitteralString(s)) => title = std::str::from_utf8(s).ok(),
+                    Some(t) => panic!("Title should be a string; found {t:?}"),
                     _ => panic!("Title should be a string"),
                 },
                 Token::Name(b"Author") => match pdf.next() {
-                    Some(Token::String(s)) => author = std::str::from_utf8(s).ok(),
+                    Some(Token::LitteralString(s)) => author = std::str::from_utf8(s).ok(),
                     _ => panic!("Author should be a string"),
                 },
                 Token::Name(b"Creator") => match pdf.next() {
-                    Some(Token::String(s)) => creator = std::str::from_utf8(s).ok(),
+                    Some(Token::LitteralString(s)) => creator = std::str::from_utf8(s).ok(),
                     _ => panic!("Creator should be a string"),
                 },
                 Token::Name(b"Producer") => match pdf.next() {
-                    Some(Token::String(s)) => producer = std::str::from_utf8(s).ok(),
-                    _ => panic!("Producter should be a string"),
+                    Some(Token::LitteralString(s)) => producer = std::str::from_utf8(s).ok(),
+                    Some(t) => panic!("Producer should be a string; found {t:?}"),
+                    _ => panic!("Producer should be a string"),
                 },
                 Token::Name(b"CreationDate") => match pdf.next() {
-                    Some(Token::String(s)) => creation_date = std::str::from_utf8(s).ok(),
+                    Some(Token::LitteralString(s)) => creation_date = std::str::from_utf8(s).ok(),
                     _ => panic!("CreationDate should be a string"),
                 },
-                Token::Name(b"Moddate") => match pdf.next() {
-                    Some(Token::String(s)) => mod_date = std::str::from_utf8(s).ok(),
+                Token::Name(b"ModDate") => match pdf.next() {
+                    Some(Token::LitteralString(s)) => mod_date = std::str::from_utf8(s).ok(),
                     _ => panic!("Modification date should be a string"),
                 },
+                Token::Name(b"PTEX.Fullbanner") => {pdf.next();},
+                Token::Name(n) => println!("Key {:?} is not implemented", std::str::from_utf8(n)),
                 Token::DictEnd => break,
-                a => panic!("Unexpected key was found in info dictionnary {a:?}"),
+                t => panic!("Unexpected key was found in info dictionnary {t:?}"),
             };
         }
         Info { title, author, creator, producer, creation_date, mod_date }
