@@ -23,9 +23,9 @@ fn main() {
 
     // Pdf header with specifications version
     let version = pdfrust::pdf_version(&file[..8]);
-    println!("Pdf version {version:?}");
+    println!("Pdf version: {version:?}");
 
-    // Pdf file ends with %%EOF
+    // Check that pdf file ends with %%EOF
     let file = file.trim_ascii();
     if &file[file.len() - 5..] != b"%%EOF" {
         panic!("PDF file is corrupted; not consistent trailing charaters");
@@ -33,7 +33,6 @@ fn main() {
 
     // Cross reference table
     let xref_table = pdfrust::xref_table(&file);
-    println!("{xref_table:?}");
 
     // Trailer
     let trailer = pdfrust::trailer(&file);
@@ -41,7 +40,6 @@ fn main() {
 
     // Catalog
     let catalog_idx = xref_table.get(&trailer.root).unwrap();
-    println!("{:?}", std::str::from_utf8(&file[*catalog_idx..*catalog_idx+30]));
     let catalog = pdfrust::catalog(&file[*catalog_idx..]);
     println!("{catalog:?}");
 
