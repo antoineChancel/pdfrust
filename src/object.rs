@@ -651,17 +651,28 @@ mod tests {
     }
 
     #[test]
-    fn test_pdfbytes_iterator() {
+    fn test_pdfbytes_iterator_skipped_comment() {
         let mut pdf = PdfBytes::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
-        // assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7")));
+        // comments are skipped by iterator
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::String(b"obj")));
-        // assert_eq!(pdf.next(), Some(Token::Comment(b" entry point")));
     }
 
     #[test]
-    fn test_pdfbytes_iterator_2() {
+    fn test_pdfbytes_iterator_litteral_string() {
+        let mut pdf = PdfBytes::new(b"(Hello World)");
+        assert_eq!(pdf.next(), Some(Token::LitteralString(b"Hello World")));
+    }
+
+    #[test]
+    fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
+        let mut pdf = PdfBytes::new(b"((Hello) (World))");
+        assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
+    }
+
+    #[test]
+    fn test_pdfbytes_iterator_full() {
         let mut pdf = PdfBytes::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
         assert_eq!(pdf.next(), Some(Token::Numeric(2)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
