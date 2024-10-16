@@ -36,7 +36,7 @@ pub enum Token<'a> {
     Numeric(u32),
     String(&'a [u8]),
     LitteralString(&'a [u8]),
-    Name(&'a [u8]),
+    Name(&'a str),
     Comment(&'a [u8]),
     DictBegin,
     DictEnd,
@@ -155,7 +155,7 @@ impl<'a> Iterator for PdfBytes<'a> {
                                 _ => break,
                             }
                         }
-                        token = Some(Token::Name(&self.bytes[begin..self.curr_idx]));
+                        token = Some(Token::Name(std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap()));
                         break;
                     }
                     // TODO: to be treated
@@ -258,18 +258,18 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::String(b"obj")));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
-        assert_eq!(pdf.next(), Some(Token::Name(b"Type")));
-        assert_eq!(pdf.next(), Some(Token::Name(b"Pages")));
-        assert_eq!(pdf.next(), Some(Token::Name(b"MediaBox")));
+        assert_eq!(pdf.next(), Some(Token::Name("Type")));
+        assert_eq!(pdf.next(), Some(Token::Name("Pages")));
+        assert_eq!(pdf.next(), Some(Token::Name("MediaBox")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::Numeric(200)));
         assert_eq!(pdf.next(), Some(Token::Numeric(200)));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
-        assert_eq!(pdf.next(), Some(Token::Name(b"Count")));
+        assert_eq!(pdf.next(), Some(Token::Name("Count")));
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
-        assert_eq!(pdf.next(), Some(Token::Name(b"Kids")));
+        assert_eq!(pdf.next(), Some(Token::Name("Kids")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(pdf.next(), Some(Token::Numeric(3)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));

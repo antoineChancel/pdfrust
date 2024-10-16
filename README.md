@@ -1,8 +1,8 @@
 # PdfRust
 
-Pdf parser in pure Rust to extract data.
+Pdf parser in pure Rust without peer dependencies.
 
-References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf
+References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf.
 
 ## Usage
 

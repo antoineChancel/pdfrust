@@ -146,6 +146,10 @@ pub fn info(file_stream: &[u8]) -> object::Info {
     object::Info::from(file_stream)
 }
 
+pub fn pages<'a>(file_stream: &'a [u8], xref_table: &XrefTable) -> object::PageTreeNodeRoot {
+    object::PageTreeNodeRoot::new(file_stream, &xref_table)
+}
+
 #[cfg(test)]
 mod tests {
 
