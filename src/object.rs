@@ -1,7 +1,7 @@
 use core::panic;
 use std::slice::Iter;
 
-use tokenizer::{CharacterSet, Delimiter, PdfBytes, Token};
+use tokenizer::{CharacterSet, Delimiter, Tokenizer, Token};
 
 use crate::XrefTable;
 
@@ -93,11 +93,11 @@ pub struct IndirectObject {
     pub is_reference: bool,
 }
 
-impl TryFrom<&mut PdfBytes<'_>> for IndirectObject {
+impl TryFrom<&mut Tokenizer<'_>> for IndirectObject {
     type Error = &'static str;
 
     // Read bytes b"1 0 R: to IndirectRef
-    fn try_from(byte: &mut PdfBytes<'_>) -> Result<Self, &'static str> {
+    fn try_from(byte: &mut Tokenizer<'_>) -> Result<Self, &'static str> {
         let obj_num = match byte.next() {
             Some(Token::Numeric(n)) => Numeric(n),
             Some(t) => return Err("Unable to read components of indirect object; found incorrect first token"),
@@ -213,7 +213,7 @@ impl PageTreeKids {
     fn new(bytes: &[u8], xref: &XrefTable) -> PageTreeKids {
 
         // Read header of dictionary
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
 
         println!("PageTreeKids bytes: {:?}", std::str::from_utf8(bytes));
 
@@ -262,7 +262,7 @@ pub struct PageTreeNodeRoot {
 impl PageTreeNodeRoot {
 
     pub fn new(bytes: &[u8], xref: &XrefTable) -> Self {
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
 
         println!("PageTreeNodeRoot bytes: {:?}", std::str::from_utf8(bytes));
 
@@ -354,7 +354,7 @@ pub struct PageTreeNode {
 
 impl PageTreeNode {
     fn new(bytes: &[u8], xref: &XrefTable) -> Self {
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
 
         // Consume object header
         IndirectObject::try_from(&mut pdf);
@@ -430,7 +430,7 @@ struct Page {
 
 impl Page {
     fn new(bytes: &[u8], xref: &XrefTable) -> Self {
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
 
         // Consume object header
         IndirectObject::try_from(&mut pdf);
@@ -497,7 +497,7 @@ pub struct Catalog {
 
 impl From<&[u8]> for Catalog {
     fn from(bytes: &[u8]) -> Self {
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
         // Consume object header
         IndirectObject::try_from(&mut pdf);
 
@@ -535,7 +535,7 @@ pub struct Info<'a> {
 
 impl<'a> From<&'a [u8]> for Info<'a> {
     fn from(bytes: &'a [u8]) -> Self {
-        let mut pdf = PdfBytes::new(bytes);
+        let mut pdf = Tokenizer::new(bytes);
 
         // Consume object header
         IndirectObject::try_from(&mut pdf).unwrap();

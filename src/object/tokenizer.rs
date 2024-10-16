@@ -22,13 +22,6 @@ impl WhiteSpace {
             _ => panic!("Unable to interprete character set whitespace"),
         }
     }
-
-    pub fn is_eol(&self) -> bool {
-        match self {
-            Self::LineFeed | Self::CarriageReturn => true,
-            _ => false,
-        }
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -83,18 +76,18 @@ impl From<&u8> for CharacterSet {
     }
 }
 
-pub struct PdfBytes<'a> {
+pub struct Tokenizer<'a> {
     bytes: &'a [u8],
     curr_idx: usize,
 }
 
-impl<'a> PdfBytes<'a> {
-    pub fn new(bytes: &'a [u8]) -> PdfBytes<'a> {
-        PdfBytes { bytes, curr_idx: 0 }
+impl<'a> Tokenizer<'a> {
+    pub fn new(bytes: &'a [u8]) -> Tokenizer<'a> {
+        Tokenizer { bytes, curr_idx: 0 }
     }
 }
 
-impl<'a> Iterator for PdfBytes<'a> {
+impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -232,7 +225,7 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_skipped_comment() {
-        let mut pdf = PdfBytes::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
+        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
         // comments are skipped by iterator
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
@@ -241,19 +234,19 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string() {
-        let mut pdf = PdfBytes::new(b"(Hello World)");
+        let mut pdf = Tokenizer::new(b"(Hello World)");
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"Hello World")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
-        let mut pdf = PdfBytes::new(b"((Hello) (World))");
+        let mut pdf = Tokenizer::new(b"((Hello) (World))");
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_full() {
-        let mut pdf = PdfBytes::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
+        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
         assert_eq!(pdf.next(), Some(Token::Numeric(2)));
         assert_eq!(pdf.next(), Some(Token::Numeric(0)));
         assert_eq!(pdf.next(), Some(Token::String(b"obj")));
