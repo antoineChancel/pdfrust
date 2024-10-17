@@ -33,6 +33,7 @@ pub enum Token<'a> {
     LitteralString(&'a [u8]),
     Name(&'a str),
     Comment(&'a [u8]),
+    IndirectRef(u32, u32),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -87,8 +88,17 @@ impl<'a> Tokenizer<'a> {
     pub fn new(bytes: &'a [u8]) -> Tokenizer<'a> {
         Tokenizer { bytes, curr_idx: 0 }
     }
-}
 
+    pub fn peek(&mut self, lap: usize) -> Option<Token<'a>> {
+        let curr_idx = self.curr_idx;
+        let mut token = None;
+        for _ in 0..lap {
+            token = self.next();
+        }
+        self.curr_idx = curr_idx;
+        token
+    }
+}
 
 impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;
@@ -151,7 +161,9 @@ impl<'a> Iterator for Tokenizer<'a> {
                                 _ => break,
                             }
                         }
-                        token = Some(Token::Name(std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap()));
+                        token = Some(Token::Name(
+                            std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap(),
+                        ));
                         break;
                     }
                     // TODO: to be treated
@@ -204,6 +216,23 @@ impl<'a> Iterator for Tokenizer<'a> {
                             numeric = numeric * 10 + char::from(*c).to_digit(10).unwrap()
                         }
                         token = Some(Token::Numeric(numeric));
+
+                        // indirect reference (peek next 2 tokens)
+                        match self.peek(1) {
+                            Some(Token::Numeric(gen)) => match self.peek(2) {
+                                Some(Token::String(b"R")) => {
+                                    let obj = numeric;
+                                    let gen = match self.next().unwrap() {
+                                        Token::Numeric(gen) => gen,
+                                        _ => panic!("Unable to read generation number"),
+                                    };
+                                    self.next(); // consume 'R'
+                                    token = Some(Token::IndirectRef(obj, gen));
+                                }
+                                _ => break,
+                            },
+                            _ => break,
+                        }
                     } else {
                         token = Some(Token::String(&self.bytes[begin..self.curr_idx]));
                     }
@@ -267,9 +296,7 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Name("Kids")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
-        assert_eq!(pdf.next(), Some(Token::Numeric(3)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
-        assert_eq!(pdf.next(), Some(Token::String(b"R")));
+        assert_eq!(pdf.next(), Some(Token::IndirectRef(3, 0)));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::String(b"endobj")));

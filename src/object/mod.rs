@@ -1,6 +1,6 @@
-use std::slice::Iter;
 use std::collections::HashMap;
-use tokenizer::{CharacterSet, Delimiter, Tokenizer, Token};
+use std::slice::Iter;
+use tokenizer::{CharacterSet, Delimiter, Token, Tokenizer};
 
 use crate::XrefTable;
 
@@ -12,7 +12,6 @@ type XrefMem = HashMap<IndirectObject, Object>;
 type Array = Vec<Object>;
 
 impl TryFrom<&mut Tokenizer<'_>> for Array {
-
     type Error = &'static str;
 
     fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
@@ -22,7 +21,7 @@ impl TryFrom<&mut Tokenizer<'_>> for Array {
                 Token::ArrayEnd => break,
                 _ => array.push(Object::try_from(t).unwrap()),
             }
-        };
+        }
         Ok(array)
     }
 }
@@ -30,7 +29,6 @@ impl TryFrom<&mut Tokenizer<'_>> for Array {
 type Dictionary = HashMap<Name, Object>;
 
 impl TryFrom<&mut Tokenizer<'_>> for Dictionary {
-
     type Error = &'static str;
 
     fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
@@ -40,20 +38,29 @@ impl TryFrom<&mut Tokenizer<'_>> for Dictionary {
                 Token::Name(name) => {
                     let key = Name(String::from(name));
                     let value = match tokenizer.next() {
-                        Some(Token::DictBegin) => Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap()),
-                        Some(Token::ArrayBegin) => Object::Array(Array::try_from(&mut *tokenizer).unwrap()),
-                        Some(Token::LitteralString(s)) => Object::String(String::from(std::str::from_utf8(s).unwrap())),
+                        Some(Token::DictBegin) => {
+                            Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap())
+                        }
+                        Some(Token::ArrayBegin) => {
+                            Object::Array(Array::try_from(&mut *tokenizer).unwrap())
+                        }
+                        Some(Token::LitteralString(s)) => {
+                            Object::String(String::from(std::str::from_utf8(s).unwrap()))
+                        }
                         Some(Token::String(s)) => Object::Name(Name::from(s)),
                         Some(Token::Name(n)) => Object::Name(Name(String::from(n))),
                         Some(Token::Numeric(n)) => Object::Numeric(Numeric(n)),
-                        // Some(Token::IndirectObject) => Object::Ref(IndirectObject::try_from(tokenizer).unwrap()),
-                        Some(t) => panic!("Unexpected token found in dictionary value {token:?}", token=t),
+                        Some(Token::IndirectRef(obj, gen)) => Object::Ref(IndirectObject(obj, gen)),
+                        Some(t) => panic!(
+                            "Unexpected token found in dictionary value {token:?}",
+                            token = t
+                        ),
                         None => panic!("Unexpected end of stream found in dictionary value"),
                     };
                     dict.insert(key, value);
                 }
                 Token::DictEnd => break,
-                _ => panic!("Unexpected token found in dictionary key"),
+                t => panic!("Unexpected token found in dictionary key {t:?}"),
             }
         }
         Ok(dict)
@@ -73,7 +80,6 @@ enum Object {
 
 // object creation from tokenizer (pdf body)
 impl<'a> TryFrom<&mut Tokenizer<'_>> for Object {
-
     type Error = &'static str;
 
     fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
@@ -81,7 +87,9 @@ impl<'a> TryFrom<&mut Tokenizer<'_>> for Object {
         IndirectObject::try_from(&mut *tokenizer).unwrap();
 
         match tokenizer.next() {
-            Some(Token::DictBegin) => Ok(Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap()),),
+            Some(Token::DictBegin) => Ok(Object::Dictionary(
+                Dictionary::try_from(&mut *tokenizer).unwrap(),
+            )),
             // Some(Token::ArrayBegin) => Ok(Object::Array(Array::new())),
             // Token::IndirectObject => Ok(Object::Ref(IndirectObject::try_from(&mut tokenizer).unwrap())),
             // Some(Token::Name(n)) => Ok(Object::Name(Name(String::from(n)))),
@@ -93,7 +101,6 @@ impl<'a> TryFrom<&mut Tokenizer<'_>> for Object {
 
 // conversion of bare pdf token to object
 impl<'a> TryFrom<Token<'a>> for Object {
-
     type Error = &'static str;
 
     fn try_from(token: Token) -> Result<Self, Self::Error> {
@@ -103,7 +110,11 @@ impl<'a> TryFrom<Token<'a>> for Object {
             // Token::IndirectObject => Ok(Object::Ref(IndirectObject::try_from(&mut tokenizer).unwrap())),
             Token::Name(n) => Ok(Object::Name(Name(String::from(n)))),
             Token::Numeric(n) => Ok(Object::Numeric(Numeric(n))),
-            _ => panic!("Unexpected token found in object"),
+            Token::String(s) => Ok(Object::String(String::from(
+                std::str::from_utf8(s).unwrap(),
+            ))),
+            Token::IndirectRef(obj, gen) => Ok(Object::Ref(IndirectObject(obj, gen))),
+            t => panic!("Unexpected token found in object{t:?}"),
         }
     }
 }
@@ -188,11 +199,7 @@ impl TryFrom<&mut Iter<'_, u8>> for Numeric {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub struct IndirectObject {
-    pub obj_num: Numeric,
-    pub obj_gen: Numeric,
-    pub is_reference: bool,
-}
+pub struct IndirectObject(pub u32, pub u32);
 
 impl TryFrom<&mut Tokenizer<'_>> for IndirectObject {
     type Error = &'static str;
@@ -200,26 +207,31 @@ impl TryFrom<&mut Tokenizer<'_>> for IndirectObject {
     // Read bytes b"1 0 R: to IndirectRef
     fn try_from(byte: &mut Tokenizer<'_>) -> Result<Self, &'static str> {
         let obj_num = match byte.next() {
-            Some(Token::Numeric(n)) => Numeric(n),
-            Some(t) => return Err("Unable to read components of indirect object; found incorrect first token"),
+            Some(Token::Numeric(n)) => n,
+            Some(t) => {
+                return Err(
+                    "Unable to read components of indirect object; found incorrect first token",
+                )
+            }
             _ => return Err("Unable to read first component of indirect object"),
         };
-        let obj_gen = match byte.next() {
-            Some(Token::Numeric(n)) => Numeric(n),
-            Some(t) => return Err("Unable to read components of indirect object; found incorrect second token"),
-            _ => return Err("Unable to read second component of indirect object"),
-        };
+        let obj_gen =
+            match byte.next() {
+                Some(Token::Numeric(n)) => n,
+                Some(t) => return Err(
+                    "Unable to read components of indirect object; found incorrect second token",
+                ),
+                _ => return Err("Unable to read second component of indirect object"),
+            };
         let is_reference = match byte.next() {
             Some(Token::String(b"R")) => true,
             Some(Token::String(b"obj")) => false,
-            Some(c) => return Err("Incoherent character found in third component of indirect object"),
+            Some(c) => {
+                return Err("Incoherent character found in third component of indirect object")
+            }
             None => return Err("Unable to read third component of indirect object"),
         };
-        Ok(IndirectObject {
-            obj_num,
-            obj_gen,
-            is_reference
-        })
+        Ok(IndirectObject(obj_num, obj_gen))
     }
 }
 
@@ -241,13 +253,9 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
             None => panic!("Unable to read third component of indirect object"),
         };
         byte.next(); // TODO: check whitespace
-        IndirectObject {
-            obj_num,
-            obj_gen,
-            is_reference,
+        IndirectObject(obj_num.0, obj_gen.0)
         }
     }
-}
 
 // extract trailer dictionnary
 #[derive(Debug, PartialEq)]
@@ -263,11 +271,7 @@ pub struct Trailer {
 impl From<&[u8]> for Trailer {
     fn from(bytes: &[u8]) -> Self {
         let mut size = Numeric(9999);
-        let mut root = IndirectObject {
-            obj_num: Numeric(0),
-            obj_gen: Numeric(0),
-            is_reference: true,
-        };
+        let mut root = IndirectObject(0, 0);
         let mut info = None;
         let id = None;
         let mut prev = None;
@@ -310,9 +314,7 @@ pub enum PageTreeKids {
 }
 
 impl PageTreeKids {
-
     fn new(bytes: &[u8], xref: &XrefTable) -> PageTreeKids {
-
         // Read header of dictionary
         let mut pdf = Tokenizer::new(bytes);
 
@@ -331,15 +333,19 @@ impl PageTreeKids {
         while let Some(t) = pdf.next() {
             match t {
                 Token::Name("Type") => match pdf.next() {
-                    Some(Token::Name("Pages")) => return PageTreeKids::PageTreeNode(PageTreeNode::new(&bytes, &xref)),
-                    Some(Token::Name("Page")) => return PageTreeKids::Page(Page::new(&bytes, &xref)),
+                    Some(Token::Name("Pages")) => {
+                        return PageTreeKids::PageTreeNode(PageTreeNode::new(&bytes, &xref))
+                    }
+                    Some(Token::Name("Page")) => {
+                        return PageTreeKids::Page(Page::new(&bytes, &xref))
+                    }
                     Some(t) => panic!("Unexpected dictionnary type; found token {t:?}"),
                     None => panic!("Unexpected dictionnary type"),
                 },
                 Token::DictEnd => break,
                 a => panic!("Unexpected key was found in dictionnary catalog {a:?}"),
             }
-        };
+        }
         panic!("PageTreeKid should have a Type key");
     }
 }
@@ -352,7 +358,7 @@ enum PageTreeParent {
 #[derive(Debug)]
 pub struct PageTreeNodeRoot {
     kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Numeric, // Number of leaf nodes
+    count: Numeric,          // Number of leaf nodes
     // Inheritables (cf page 149)
     rotate: Option<Numeric>, // Number of degrees by which the page should be rotated clockwise when displayeds
     crop_box: Option<Rectangle>, // Rectangle
@@ -361,7 +367,6 @@ pub struct PageTreeNodeRoot {
 }
 
 impl PageTreeNodeRoot {
-
     pub fn new(bytes: &[u8], xref: &XrefTable) -> Self {
         let mut pdf = Tokenizer::new(bytes);
 
@@ -442,7 +447,14 @@ impl PageTreeNodeRoot {
                 a => panic!("Unexpected key was found in dictionnary page tree root node {a:?}"),
             };
         }
-        PageTreeNodeRoot { kids, count, rotate, crop_box, media_box, resources }
+        PageTreeNodeRoot {
+            kids,
+            count,
+            rotate,
+            crop_box,
+            media_box,
+            resources,
+        }
     }
 }
 
@@ -450,7 +462,7 @@ impl PageTreeNodeRoot {
 pub struct PageTreeNode {
     // parent: PageTreeParent<'a>, // The page tree node's parent
     kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Numeric, // Number of leaf nodes
+    count: Numeric,          // Number of leaf nodes
 }
 
 impl PageTreeNode {
@@ -502,31 +514,31 @@ struct Page {
     last_modified: Option<String>, // Date and time of last modification
     resources: IndirectObject,     // Resource dictionary
     media_box: Rectangle,          //rectangle
-    // crop_box: Option<Rectangle>,   //rectangle
-    // bleed_box: Option<Rectangle>,  //rectangle
-    // trim_box: Option<Rectangle>,   //rectangle
-    // art_box: Option<Rectangle>,    //rectangle
-    // box_color_info: Option<IndirectObject>, // Box color information dictionary
-    // contents: Option<Stream<'a>>,  // Content stream; if None Page is empty
-    // rotate: Option<Numeric>,
-    // group: Option<IndirectObject>, // Group attributes dictionary
-    // thumb: Option<Stream<'a>>,
-    // b: Option<Vec<IndirectObject>>, // array of indirect references to article beads
-    // dur: Option<Numeric>,           // page's display duration
-    // trans: Option<IndirectObject>,  // transition dictionary
-    // annots: Option<Vec<IndirectObject>>, // array of annotation dictionaries
-    // aa: Option<IndirectObject>,     // additional actions dictionary
-    // metadata: Option<Stream<'a>>,   // metadata stream of the page
-    // piece_info: Option<IndirectObject>, // piece information dictionary
-    // struct_parents: Option<Numeric>, // integer
-    // id: Option<String>,             // byte string
-    // pz: Option<Numeric>,            // integer
-    // separation_info: Option<IndirectObject>, // separation information dictionary
-    // tabs: Option<Name>, // name specifying the tab order to be used for annotations on the page
-    // template_instantiated: Option<Name>, // template dictionary
-    // pres_steps: Option<IndirectObject>, // navigation node dictionary
-    // user_unit: Option<Numeric>, // number specifying the size of default user space units
-    // vp: Option<IndirectObject>, // array of numbers specifying the page's viewport
+                                   // crop_box: Option<Rectangle>,   //rectangle
+                                   // bleed_box: Option<Rectangle>,  //rectangle
+                                   // trim_box: Option<Rectangle>,   //rectangle
+                                   // art_box: Option<Rectangle>,    //rectangle
+                                   // box_color_info: Option<IndirectObject>, // Box color information dictionary
+                                   // contents: Option<Stream<'a>>,  // Content stream; if None Page is empty
+                                   // rotate: Option<Numeric>,
+                                   // group: Option<IndirectObject>, // Group attributes dictionary
+                                   // thumb: Option<Stream<'a>>,
+                                   // b: Option<Vec<IndirectObject>>, // array of indirect references to article beads
+                                   // dur: Option<Numeric>,           // page's display duration
+                                   // trans: Option<IndirectObject>,  // transition dictionary
+                                   // annots: Option<Vec<IndirectObject>>, // array of annotation dictionaries
+                                   // aa: Option<IndirectObject>,     // additional actions dictionary
+                                   // metadata: Option<Stream<'a>>,   // metadata stream of the page
+                                   // piece_info: Option<IndirectObject>, // piece information dictionary
+                                   // struct_parents: Option<Numeric>, // integer
+                                   // id: Option<String>,             // byte string
+                                   // pz: Option<Numeric>,            // integer
+                                   // separation_info: Option<IndirectObject>, // separation information dictionary
+                                   // tabs: Option<Name>, // name specifying the tab order to be used for annotations on the page
+                                   // template_instantiated: Option<Name>, // template dictionary
+                                   // pres_steps: Option<IndirectObject>, // navigation node dictionary
+                                   // user_unit: Option<Numeric>, // number specifying the size of default user space units
+                                   // vp: Option<IndirectObject>, // array of numbers specifying the page's viewport
 }
 
 impl Page {
@@ -553,15 +565,13 @@ impl Page {
                 Token::Name("Type") => assert_eq!(pdf.next(), Some(Token::Name("Page"))),
 
                 // Last modified date of the page
-                Token::Name("LastModified") => {
-                    match pdf.next() {
-                        Some(Token::LitteralString(s)) => {
-                            last_modified = Some(String::from(std::str::from_utf8(s).unwrap()));
-                        }
-                        Some(t) => panic!("LastModified should be a string; found {t:?}"),
-                        None => panic!("LastModified should be a string"),
+                Token::Name("LastModified") => match pdf.next() {
+                    Some(Token::LitteralString(s)) => {
+                        last_modified = Some(String::from(std::str::from_utf8(s).unwrap()));
                     }
-                }
+                    Some(t) => panic!("LastModified should be a string; found {t:?}"),
+                    None => panic!("LastModified should be a string"),
+                },
 
                 // Resource dictionnary
                 Token::Name("Resources") => {
@@ -586,7 +596,11 @@ impl Page {
                 _ => (),
             };
         }
-        Page { last_modified, resources: resources.unwrap(), media_box: media_box.unwrap() }
+        Page {
+            last_modified,
+            resources: resources.unwrap(),
+            media_box: media_box.unwrap(),
+        }
     }
 }
 
@@ -613,8 +627,10 @@ impl From<&[u8]> for Catalog {
         while let Some(t) = pdf.next() {
             match t {
                 Token::Name("Type") => assert_eq!(pdf.next(), Some(Token::Name("Catalog"))),
-                Token::Name("Pages") => {
-                    pages = Some(IndirectObject::try_from(&mut pdf).unwrap());
+                Token::Name("Pages") => match pdf.next() {
+                    Some(Token::IndirectRef(obj, gen)) => pages = Some(IndirectObject(obj, gen)),
+                    Some(t) => panic!("Pages should be an indirect reference; found {t:?}"),
+                    None => panic!("Pages should be an indirect reference"),
                 }
                 Token::DictEnd => break,
                 a => panic!("Unexpected key was found in dictionnary catalog {a:?}"),
@@ -735,11 +751,7 @@ mod tests {
         let mut object_ref_sample = b"1 0 R".iter();
         assert_eq!(
             IndirectObject::from(&mut object_ref_sample),
-            IndirectObject {
-                obj_num: Numeric(1),
-                obj_gen: Numeric(0),
-                is_reference: true,
-            }
+            IndirectObject(1, 0)
         );
     }
 
@@ -750,11 +762,7 @@ mod tests {
             Trailer::from(dict),
             Trailer {
                 size: Numeric(6),
-                root: IndirectObject {
-                    obj_num: Numeric(1),
-                    obj_gen: Numeric(0),
-                    is_reference: true
-                },
+                root: IndirectObject(1, 0),
                 info: None,
                 prev: None,
                 encrypt: None,
@@ -772,16 +780,8 @@ mod tests {
             Trailer::from(dict),
             Trailer {
                 size: Numeric(26),
-                root: IndirectObject {
-                    obj_num: Numeric(13),
-                    obj_gen: Numeric(0),
-                    is_reference: true
-                },
-                info: Some(IndirectObject {
-                    obj_num: Numeric(1),
-                    obj_gen: Numeric(0),
-                    is_reference: true
-                }),
+                root: IndirectObject(13, 0),
+                info: Some(IndirectObject(1, 0)),
                 prev: None,
                 encrypt: None,
                 id: None
@@ -795,11 +795,7 @@ mod tests {
         assert_eq!(
             catalog,
             Catalog {
-                pages: Some(IndirectObject {
-                    obj_num: Numeric(2),
-                    obj_gen: Numeric(0),
-                    is_reference: true
-                })
+                pages: Some(IndirectObject(2, 0))
             }
         )
     }
@@ -823,22 +819,83 @@ mod tests {
 
     #[test]
     fn test_dictionnary_0() {
-        let mut bytes = Tokenizer::new(b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>");
+        let mut bytes =
+            Tokenizer::new(b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>");
         let dict = Dictionary::try_from(&mut bytes).unwrap();
-        assert_eq!(dict.get(&Name(String::from("Title"))), Some(&Object::String("sample".to_string())));
-        assert_eq!(dict.get(&Name(String::from("Author"))), Some(&Object::String("Philip Hutchison".to_string())));
-        assert_eq!(dict.get(&Name(String::from("Creator"))), Some(&Object::String("Pages".to_string())));
+        assert_eq!(
+            dict.get(&Name(String::from("Title"))),
+            Some(&Object::String("sample".to_string()))
+        );
+        assert_eq!(
+            dict.get(&Name(String::from("Author"))),
+            Some(&Object::String("Philip Hutchison".to_string()))
+        );
+        assert_eq!(
+            dict.get(&Name(String::from("Creator"))),
+            Some(&Object::String("Pages".to_string()))
+        );
     }
 
     #[test]
-    fn test_object_0() {
-        let mut bytes = Tokenizer::new(b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj");
+    fn test_object_catalog() {
+        let mut bytes =
+            Tokenizer::new(b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj");
         match Object::try_from(&mut bytes) {
             Ok(Object::Dictionary(d)) => {
-                assert_eq!(d.get(&Name(String::from("Type"))), Some(&Object::Name(Name(String::from("Catalog")))));
-            },
+                assert_eq!(
+                    d.get(&Name(String::from("Type"))),
+                    Some(&Object::Name(Name(String::from("Catalog"))))
+                );
+            }
             Ok(_) => todo!(),
-            Err(_) => todo!()
+            Err(_) => todo!(),
+        }
+    }
+
+    #[test]
+    fn test_object_pages() {
+        let mut bytes = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj");
+        match Object::try_from(&mut bytes) {
+            Ok(Object::Dictionary(d)) => {
+                assert_eq!(
+                    d.get(&Name(String::from("Type"))),
+                    Some(&Object::Name(Name(String::from("Pages"))))
+                );
+                assert_eq!(
+                    d.get(&Name(String::from("MediaBox"))),
+                    Some(&Object::Array(vec![
+                        Object::Numeric(Numeric(0)),
+                        Object::Numeric(Numeric(0)),
+                        Object::Numeric(Numeric(200)),
+                        Object::Numeric(Numeric(200))
+                    ]))
+                );
+                assert_eq!(
+                    d.get(&Name(String::from("Count"))),
+                    Some(&Object::Numeric(Numeric(1)))
+                );
+                // assert_eq!(d.get(&Name(String::from("Kids"))), Some(&Object::Array(vec![Object::Ref(IndirectObject { obj_num: Numeric(3), obj_gen: Numeric(0), is_reference: true })]));
+            }
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
+        }
+    }
+
+    #[test]
+    fn test_object_page() {
+        let mut bytes = Tokenizer::new(b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj");
+        match Object::try_from(&mut bytes) {
+            Ok(Object::Dictionary(d)) => {
+                assert_eq!(
+                    d.get(&Name(String::from("Type"))),
+                    Some(&Object::Name(Name(String::from("Page"))))
+                );
+                // assert_eq!(d.get(&Name(String::from("Parent"))), Some(&Object::Array(vec![Object::Numeric(Numeric(0)), Object::Numeric(Numeric(0)), Object::Numeric(Numeric(200)), Object::Numeric(Numeric(200))])));
+                // assert_eq!(d.get(&Name(String::from("Count"))), Some(&Object::Numeric(Numeric(1))));
+                // assert_eq!(d.get(&Name(String::from("Kids"))), Some(&Object::Array(vec![Object::Ref(IndirectObject { obj_num: Numeric(3), obj_gen: Numeric(0), is_reference: true })]));
+            }
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
         }
     }
 }

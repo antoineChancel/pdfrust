@@ -57,5 +57,4 @@ fn main() {
     let pages_idx = xref_table.get(&catalog.pages.unwrap()).unwrap();
     let pages = pdfrust::pages(&file[*pages_idx..], &xref_table);
     println!("{pages:?}");
-
 }
