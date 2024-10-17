@@ -28,6 +28,7 @@ pub enum Token<'a> {
     Numeric(u32),
     String(&'a [u8]),
     LitteralString(&'a [u8]),
+    HexString(&'a [u8]),
     Name(&'a str),
     Comment(&'a [u8]),
     IndirectRef(u32, u32),
@@ -138,6 +139,20 @@ impl<'a> Iterator for Tokenizer<'a> {
                         } else if &self.bytes[self.curr_idx..self.curr_idx + 2] == b">>".as_ref() {
                             self.curr_idx += 2;
                             token = Some(Token::DictEnd);
+                            break;
+                        } else if self.bytes[self.curr_idx] == b'<' {
+                            self.curr_idx += 1;
+                            let begin = self.curr_idx;
+                            loop {
+                                self.curr_idx += 1;
+                                // end of stream
+                                if self.curr_idx >= self.bytes.len() {
+                                    break;
+                                }
+                                if self.bytes[self.curr_idx] == b'>' {break;};
+                            }
+                            token = Some(Token::HexString(&self.bytes[begin..self.curr_idx]));
+                            self.curr_idx += 1;
                             break;
                         } else if self.bytes[self.curr_idx] == b'[' {
                             self.curr_idx += 1;
@@ -284,6 +299,12 @@ mod tests {
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
         let mut pdf = Tokenizer::new(b"((Hello) (World))");
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
+    }
+
+    #[test]
+    fn test_pdfbytes_iterator_hex_string() {
+        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>");
+        assert_eq!(pdf.next(), Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E")));
     }
 
     #[test]

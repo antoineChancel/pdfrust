@@ -58,6 +58,9 @@ impl TryFrom<&mut Tokenizer<'_>> for Dictionary {
                         Some(Token::String(s)) => {
                             Object::Name(String::from(std::str::from_utf8(s).unwrap()))
                         }
+                        Some(Token::HexString(s)) => {
+                            Object::String(String::from(std::str::from_utf8(s).unwrap()))
+                        }
                         Some(Token::Name(n)) => Object::Name(String::from(n)),
                         Some(Token::Numeric(n)) => Object::Numeric(n),
                         Some(Token::IndirectRef(obj, gen)) => Object::Ref((obj, gen)),
@@ -120,6 +123,12 @@ impl<'a> TryFrom<Token<'a>> for Object {
             Token::Name(n) => Ok(Object::Name(String::from(n))),
             Token::Numeric(n) => Ok(Object::Numeric(n)),
             Token::String(s) => Ok(Object::String(String::from(
+                std::str::from_utf8(s).unwrap(),
+            ))),
+            Token::LitteralString(s) => Ok(Object::String(String::from(
+                std::str::from_utf8(s).unwrap(),
+            ))),
+            Token::HexString(s) => Ok(Object::String(String::from(
                 std::str::from_utf8(s).unwrap(),
             ))),
             Token::IndirectRef(obj, gen) => Ok(Object::Ref((obj, gen))),
