@@ -1,3 +1,5 @@
+use std::iter::Peekable;
+
 // Tokenizer for PDF objects
 //
 #[derive(Debug)]
@@ -86,6 +88,7 @@ impl<'a> Tokenizer<'a> {
         Tokenizer { bytes, curr_idx: 0 }
     }
 }
+
 
 impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;

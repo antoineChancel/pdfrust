@@ -45,13 +45,13 @@ fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct PdfObject {
+pub struct XrefVal {
     offset: usize,
     generation: usize,
     in_use: bool,
 }
 
-fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
+fn xref_table_subsection_entry(line: &str) -> Option<XrefVal> {
     // Try reading an xref entry
     let mut token = line.split_whitespace();
     let offset = match token.next() {
@@ -72,7 +72,7 @@ fn xref_table_subsection_entry(line: &str) -> Option<PdfObject> {
         Some(w) => w == "n",
         None => return None,
     };
-    Some(PdfObject {
+    Some(XrefVal {
         offset,
         generation,
         in_use,
@@ -174,7 +174,7 @@ mod tests {
         let entry = "0000000010 00000 n";
         assert_eq!(
             xref_table_subsection_entry(entry).unwrap(),
-            PdfObject {
+            XrefVal {
                 offset: 10,
                 generation: 0,
                 in_use: true
@@ -187,7 +187,7 @@ mod tests {
         let entry = "0000000000 65535 f";
         assert_eq!(
             xref_table_subsection_entry(entry).unwrap(),
-            PdfObject {
+            XrefVal {
                 offset: 0,
                 generation: 65535,
                 in_use: false

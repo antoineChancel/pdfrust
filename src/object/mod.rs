@@ -1,11 +1,112 @@
-use core::panic;
 use std::slice::Iter;
-
+use std::collections::HashMap;
 use tokenizer::{CharacterSet, Delimiter, Tokenizer, Token};
 
 use crate::XrefTable;
 
 mod tokenizer;
+
+// Memoize indirect object reference
+type XrefMem = HashMap<IndirectObject, Object>;
+
+type Array = Vec<Object>;
+
+impl TryFrom<&mut Tokenizer<'_>> for Array {
+
+    type Error = &'static str;
+
+    fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
+        let mut array = Array::new();
+        while let Some(t) = tokenizer.next() {
+            match t {
+                Token::ArrayEnd => break,
+                _ => array.push(Object::try_from(t).unwrap()),
+            }
+        };
+        Ok(array)
+    }
+}
+
+type Dictionary = HashMap<Name, Object>;
+
+impl TryFrom<&mut Tokenizer<'_>> for Dictionary {
+
+    type Error = &'static str;
+
+    fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
+        let mut dict = Dictionary::new();
+        while let Some(t) = tokenizer.next() {
+            match t {
+                Token::Name(name) => {
+                    let key = Name(String::from(name));
+                    let value = match tokenizer.next() {
+                        Some(Token::DictBegin) => Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap()),
+                        Some(Token::ArrayBegin) => Object::Array(Array::try_from(&mut *tokenizer).unwrap()),
+                        Some(Token::LitteralString(s)) => Object::String(String::from(std::str::from_utf8(s).unwrap())),
+                        Some(Token::String(s)) => Object::Name(Name::from(s)),
+                        Some(Token::Name(n)) => Object::Name(Name(String::from(n))),
+                        Some(Token::Numeric(n)) => Object::Numeric(Numeric(n)),
+                        // Some(Token::IndirectObject) => Object::Ref(IndirectObject::try_from(tokenizer).unwrap()),
+                        Some(t) => panic!("Unexpected token found in dictionary value {token:?}", token=t),
+                        None => panic!("Unexpected end of stream found in dictionary value"),
+                    };
+                    dict.insert(key, value);
+                }
+                Token::DictEnd => break,
+                _ => panic!("Unexpected token found in dictionary key"),
+            }
+        }
+        Ok(dict)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum Object {
+    Dictionary(Dictionary),
+    Stream(Dictionary, Vec<u8>),
+    Array(Array),
+    Name(Name),
+    String(String),
+    Numeric(Numeric),
+    Ref(IndirectObject),
+}
+
+// object creation from tokenizer (pdf body)
+impl<'a> TryFrom<&mut Tokenizer<'_>> for Object {
+
+    type Error = &'static str;
+
+    fn try_from(tokenizer: &mut Tokenizer<'_>) -> Result<Self, Self::Error> {
+        // Consume object header
+        IndirectObject::try_from(&mut *tokenizer).unwrap();
+
+        match tokenizer.next() {
+            Some(Token::DictBegin) => Ok(Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap()),),
+            // Some(Token::ArrayBegin) => Ok(Object::Array(Array::new())),
+            // Token::IndirectObject => Ok(Object::Ref(IndirectObject::try_from(&mut tokenizer).unwrap())),
+            // Some(Token::Name(n)) => Ok(Object::Name(Name(String::from(n)))),
+            // Some(Token::Numeric(n)) => Ok(Object::Numeric(Numeric(n))),
+            _ => panic!("Unexpected token found in object"),
+        }
+    }
+}
+
+// conversion of bare pdf token to object
+impl<'a> TryFrom<Token<'a>> for Object {
+
+    type Error = &'static str;
+
+    fn try_from(token: Token) -> Result<Self, Self::Error> {
+        match token {
+            Token::DictBegin => Ok(Object::Dictionary(Dictionary::new())),
+            Token::ArrayBegin => Ok(Object::Array(Array::new())),
+            // Token::IndirectObject => Ok(Object::Ref(IndirectObject::try_from(&mut tokenizer).unwrap())),
+            Token::Name(n) => Ok(Object::Name(Name(String::from(n)))),
+            Token::Numeric(n) => Ok(Object::Numeric(Numeric(n))),
+            _ => panic!("Unexpected token found in object"),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub struct Name(String);
@@ -718,5 +819,26 @@ mod tests {
                 mod_date: Some("D:20080701052447Z00'00'")
             }
         );
+    }
+
+    #[test]
+    fn test_dictionnary_0() {
+        let mut bytes = Tokenizer::new(b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>");
+        let dict = Dictionary::try_from(&mut bytes).unwrap();
+        assert_eq!(dict.get(&Name(String::from("Title"))), Some(&Object::String("sample".to_string())));
+        assert_eq!(dict.get(&Name(String::from("Author"))), Some(&Object::String("Philip Hutchison".to_string())));
+        assert_eq!(dict.get(&Name(String::from("Creator"))), Some(&Object::String("Pages".to_string())));
+    }
+
+    #[test]
+    fn test_object_0() {
+        let mut bytes = Tokenizer::new(b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj");
+        match Object::try_from(&mut bytes) {
+            Ok(Object::Dictionary(d)) => {
+                assert_eq!(d.get(&Name(String::from("Type"))), Some(&Object::Name(Name(String::from("Catalog")))));
+            },
+            Ok(_) => todo!(),
+            Err(_) => todo!()
+        }
     }
 }
