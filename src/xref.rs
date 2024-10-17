@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 type Offset = usize;
 pub type XrefTable = HashMap<object::IndirectObject, Offset>;
-type XrefMem = HashMap<object::IndirectObject, object::Object>;
 
 #[derive(Debug, PartialEq)]
 pub struct XrefVal {

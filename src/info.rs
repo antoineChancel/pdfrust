@@ -1,4 +1,4 @@
-use super::object::{Object, Dictionary};
+use super::object::{Dictionary, Object};
 
 #[derive(Debug, PartialEq)]
 pub struct Info {

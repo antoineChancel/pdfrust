@@ -149,7 +149,9 @@ impl<'a> Iterator for Tokenizer<'a> {
                                 if self.curr_idx >= self.bytes.len() {
                                     break;
                                 }
-                                if self.bytes[self.curr_idx] == b'>' {break;};
+                                if self.bytes[self.curr_idx] == b'>' {
+                                    break;
+                                };
                             }
                             token = Some(Token::HexString(&self.bytes[begin..self.curr_idx]));
                             self.curr_idx += 1;
@@ -235,7 +237,7 @@ impl<'a> Iterator for Tokenizer<'a> {
 
                         // indirect reference (peek next 2 tokens)
                         match self.peek(1) {
-                            Some(Token::Numeric(gen)) => match self.peek(2) {
+                            Some(Token::Numeric(_)) => match self.peek(2) {
                                 Some(Token::String(b"R")) => {
                                     let obj = numeric;
                                     let gen = match self.next().unwrap() {
@@ -304,7 +306,10 @@ mod tests {
     #[test]
     fn test_pdfbytes_iterator_hex_string() {
         let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>");
-        assert_eq!(pdf.next(), Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E")));
+        assert_eq!(
+            pdf.next(),
+            Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E"))
+        );
     }
 
     #[test]

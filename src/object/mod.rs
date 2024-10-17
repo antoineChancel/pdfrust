@@ -91,7 +91,7 @@ impl<'a> TryFrom<&mut Tokenizer<'_>> for Object {
                 Some(Token::ObjBegin) => continue 'start,
                 Some(Token::DictBegin) => {
                     object = Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap());
-                    break
+                    break;
                 }
                 Some(t) => panic!("Unexpected token found in object; found {:?}", t),
                 None => panic!("Unexpected end of stream found in object"),
