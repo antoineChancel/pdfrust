@@ -254,8 +254,8 @@ impl From<&mut Iter<'_, u8>> for IndirectObject {
         };
         byte.next(); // TODO: check whitespace
         IndirectObject(obj_num.0, obj_gen.0)
-        }
     }
+}
 
 // extract trailer dictionnary
 #[derive(Debug, PartialEq)]
@@ -631,7 +631,7 @@ impl From<&[u8]> for Catalog {
                     Some(Token::IndirectRef(obj, gen)) => pages = Some(IndirectObject(obj, gen)),
                     Some(t) => panic!("Pages should be an indirect reference; found {t:?}"),
                     None => panic!("Pages should be an indirect reference"),
-                }
+                },
                 Token::DictEnd => break,
                 a => panic!("Unexpected key was found in dictionnary catalog {a:?}"),
             };
@@ -874,7 +874,10 @@ mod tests {
                     d.get(&Name(String::from("Count"))),
                     Some(&Object::Numeric(Numeric(1)))
                 );
-                // assert_eq!(d.get(&Name(String::from("Kids"))), Some(&Object::Array(vec![Object::Ref(IndirectObject { obj_num: Numeric(3), obj_gen: Numeric(0), is_reference: true })]));
+                assert_eq!(
+                    d.get(&Name(String::from("Kids"))),
+                    Some(&Object::Array(vec![Object::Ref(IndirectObject(3, 0))]))
+                );
             }
             Ok(_) => todo!(),
             Err(_) => todo!(),
@@ -890,9 +893,19 @@ mod tests {
                     d.get(&Name(String::from("Type"))),
                     Some(&Object::Name(Name(String::from("Page"))))
                 );
-                // assert_eq!(d.get(&Name(String::from("Parent"))), Some(&Object::Array(vec![Object::Numeric(Numeric(0)), Object::Numeric(Numeric(0)), Object::Numeric(Numeric(200)), Object::Numeric(Numeric(200))])));
-                // assert_eq!(d.get(&Name(String::from("Count"))), Some(&Object::Numeric(Numeric(1))));
-                // assert_eq!(d.get(&Name(String::from("Kids"))), Some(&Object::Array(vec![Object::Ref(IndirectObject { obj_num: Numeric(3), obj_gen: Numeric(0), is_reference: true })]));
+                assert_eq!(d.get(&Name(String::from("Parent"))), Some(&Object::Ref(IndirectObject(2, 0))));
+                assert_eq!(d.get(&Name(String::from("Contents"))), Some(&Object::Ref(IndirectObject(5, 0))));
+                match d.get(&Name(String::from("Resources"))) {
+                    Some(Object::Dictionary(d)) => {
+                        match d.get(&Name(String::from("Font"))) {
+                            Some(Object::Dictionary(d)) => {
+                                assert_eq!(d.get(&Name(String::from("F1"))), Some(&Object::Ref(IndirectObject(4, 0))));
+                            }
+                            _ => panic!("Resources should be a dictionnary"),
+                        }
+                    }
+                    _ => panic!("Resources should be a dictionnary"),
+                }
             }
             Ok(_) => todo!(),
             Err(_) => todo!(),

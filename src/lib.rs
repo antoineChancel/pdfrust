@@ -86,7 +86,7 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
                 table.insert(
-                    IndirectObject (object_idx as u32, o.generation as u32),
+                    IndirectObject(object_idx as u32, o.generation as u32),
                     o.offset,
                 );
             }
