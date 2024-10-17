@@ -32,16 +32,16 @@ fn main() {
     }
 
     // Cross reference table
-    let xref_table = pdfrust::xref_table(&file);
+    let xref_table = pdfrust::xref::xref_table(&file);
 
     // Trailer
     let trailer = pdfrust::trailer(&file);
     println!("{trailer:?}");
 
     // Catalog
-    let catalog_idx = xref_table.get(&trailer.root).unwrap();
-    let catalog = pdfrust::catalog(&file[*catalog_idx..]);
-    println!("{catalog:?}");
+    // let catalog_idx = xref_table.get(&trailer.root).unwrap();
+    // let catalog = pdfrust::catalog(&file[*catalog_idx..]);
+    // println!("{catalog:?}");
 
     // Information
     match trailer.info {
@@ -54,7 +54,7 @@ fn main() {
     }
 
     // Pages
-    let pages_idx = xref_table.get(&catalog.pages.unwrap()).unwrap();
-    let pages = pdfrust::pages(&file[*pages_idx..], &xref_table);
-    println!("{pages:?}");
+    // let pages_idx = xref_table.get(&catalog.pages.unwrap()).unwrap();
+    // let pages = pdfrust::pages(&file[*pages_idx..], &xref_table);
+    // println!("{pages:?}");
 }

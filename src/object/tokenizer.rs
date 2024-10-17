@@ -1,7 +1,4 @@
-use std::iter::Peekable;
-
 // Tokenizer for PDF objects
-//
 #[derive(Debug)]
 pub enum WhiteSpace {
     Null,
@@ -38,6 +35,10 @@ pub enum Token<'a> {
     DictEnd,
     ArrayBegin,
     ArrayEnd,
+    StreamBegin,
+    StreamEnd,
+    ObjBegin,
+    ObjEnd,
 }
 
 #[derive(Debug)]
@@ -229,10 +230,21 @@ impl<'a> Iterator for Tokenizer<'a> {
                                     self.next(); // consume 'R'
                                     token = Some(Token::IndirectRef(obj, gen));
                                 }
+                                Some(Token::String(b"obj")) => {
+                                    self.next(); // consume 'gen'
+                                    self.next(); // consume 'R'
+                                    token = Some(Token::ObjBegin);
+                                }
                                 _ => break,
                             },
                             _ => break,
                         }
+                    } else if &self.bytes[begin..self.curr_idx] == b"stream" {
+                        token = Some(Token::StreamBegin);
+                    } else if &self.bytes[begin..self.curr_idx] == b"endstream" {
+                        token = Some(Token::StreamEnd);
+                    } else if &self.bytes[begin..self.curr_idx] == b"endobj" {
+                        token = Some(Token::ObjEnd);
                     } else {
                         token = Some(Token::String(&self.bytes[begin..self.curr_idx]));
                     }
@@ -259,9 +271,7 @@ mod tests {
     fn test_pdfbytes_iterator_skipped_comment() {
         let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
         // comments are skipped by iterator
-        assert_eq!(pdf.next(), Some(Token::Numeric(1)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
-        assert_eq!(pdf.next(), Some(Token::String(b"obj")));
+        assert_eq!(pdf.next(), Some(Token::ObjBegin));
     }
 
     #[test]
@@ -279,9 +289,7 @@ mod tests {
     #[test]
     fn test_pdfbytes_iterator_full() {
         let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
-        assert_eq!(pdf.next(), Some(Token::Numeric(2)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
-        assert_eq!(pdf.next(), Some(Token::String(b"obj")));
+        assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type")));
         assert_eq!(pdf.next(), Some(Token::Name("Pages")));
@@ -299,6 +307,6 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::IndirectRef(3, 0)));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
-        assert_eq!(pdf.next(), Some(Token::String(b"endobj")));
+        assert_eq!(pdf.next(), Some(Token::ObjEnd));
     }
 }
