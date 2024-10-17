@@ -59,7 +59,9 @@ fn xref_table_subsection_entry(line: &str) -> Option<XrefVal> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
+fn xref_table_subsection(line: &mut std::str::Lines) -> HashMap<(u32, u32), usize> {
+    let mut table = HashMap::new();
+
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
     for object_idx in start..start + size {
@@ -70,10 +72,12 @@ fn xref_table_subsection(line: &mut std::str::Lines, table: &mut XrefTable) {
             None => panic!("Unable to read xref entry"),
         }
     }
+
+    table
 }
 
 fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
-    // improve this by reading the startxref on last line
+    // TODO - improve this by reading the startxref on last line
     let startxref = match stream.windows(4).position(|w| w == b"xref") {
         Some(i) => i,
         None => panic!("Missing xref token in the entire PDF"),
@@ -93,10 +97,8 @@ pub fn xref_table(file_stream: &[u8]) -> XrefTable {
         None => panic!("Xref table is empty"),
     };
 
-    // Init xref table
-    let mut table = HashMap::new();
-    xref_table_subsection(&mut line, &mut table);
-    table
+    // Read xref table
+    xref_table_subsection(&mut line)
 }
 
 #[cfg(test)]
@@ -152,15 +154,11 @@ mod tests {
 
     #[test]
     fn xref_table_valid() {
-        let xref_sample = b"xref
-0 6
-0000000000 65535 f 
-0000000010 00000 n 
-0000000079 00000 n 
-0000000173 00000 n 
-0000000301 00000 n 
-0000000380 00000 n";
+        let xref_sample = b"xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
         let table = xref_table(xref_sample);
         assert_eq!(table.len(), 6);
+        assert_eq!(table.get(&(1, 0)), Some(&10));
+        assert_eq!(table.get(&(2, 0)), Some(&79));
+        assert_eq!(table.get(&(5, 0)), Some(&380));
     }
 }

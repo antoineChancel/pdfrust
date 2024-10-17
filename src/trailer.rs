@@ -1,9 +1,11 @@
 use crate::object::{Array, Dictionary, IndirectObject, Numeric, Object};
 
-// extract trailer dictionnary
+// Trailer structure
 #[derive(Debug, PartialEq)]
 pub struct Trailer {
+    // Total number of entries in the file’s cross-reference table
     size: Numeric,
+    // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
     prev: Option<Numeric>,
     // Catalogue dictionnary or a reference to the root object of the page tree
     pub root: IndirectObject,
