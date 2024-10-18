@@ -13,15 +13,13 @@ pub struct Trailer {
     encrypt: Option<IndirectObject>,
     // Information dictionary containing metadata
     pub info: Option<IndirectObject>,
-    // An array of two byte-strings constituting a file identifier
+    // Array of two byte-strings constituting a file identifier
     id: Option<Array>,
 }
 
 impl From<&[u8]> for Trailer {
     fn from(bytes: &[u8]) -> Self {
-        let trailer = Object::try_from(bytes).unwrap();
-
-        match trailer {
+        match Object::try_from(bytes).unwrap() {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }

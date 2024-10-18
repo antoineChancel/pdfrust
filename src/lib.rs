@@ -1,8 +1,8 @@
 use std::fmt::Display;
 
+pub mod body;
 pub mod info;
 pub mod object;
-pub mod structures;
 pub mod trailer;
 pub mod xref;
 
@@ -45,9 +45,9 @@ pub fn trailer(file_stream: &[u8]) -> trailer::Trailer {
     trailer::Trailer::from(&file_stream[starttrailer + 8..])
 }
 
-// pub fn catalog(file_stream: &[u8]) -> structures::Catalog {
-//     structures::Catalog::from(file_stream)
-// }
+pub fn catalog(file_stream: &[u8]) -> body::Catalog {
+    body::Catalog::from(file_stream)
+}
 
 pub fn info(file_stream: &[u8]) -> info::Info {
     info::Info::from(file_stream)

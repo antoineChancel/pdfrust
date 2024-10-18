@@ -1,6 +1,5 @@
-use std::fmt::Display;
 use super::object::{Dictionary, Object};
-
+use std::fmt::Display;
 
 #[derive(Debug, PartialEq)]
 pub struct Info {
@@ -9,7 +8,7 @@ pub struct Info {
     creator: Option<String>,
     producer: Option<String>,
     creation_date: Option<String>, // TODO: convert to DateTime
-    mod_date: Option<String>, // TODO: convert to DateTime
+    mod_date: Option<String>,      // TODO: convert to DateTime
 }
 
 impl Display for Info {

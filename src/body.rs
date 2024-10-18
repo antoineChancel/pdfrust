@@ -320,57 +320,45 @@
 //     }
 // }
 
-// #[derive(Debug, PartialEq)]
-// // Defined in page 139;  commented is to be implemented
-// pub struct Catalog {
-//     pub pages: Option<IndirectObject>, // The page tree node that is the root of the document’s page tree
-// }
+use crate::object::{Dictionary, IndirectObject, Object};
 
-// impl From<&[u8]> for Catalog {
-//     fn from(bytes: &[u8]) -> Self {
-//         let mut pdf = Tokenizer::new(bytes);
+// Document Catalog
+// Defined in page 139;  commented is to be implemented
+#[derive(Debug, PartialEq)]
+pub struct Catalog {
+    // The page tree node that is the root of the document’s page tree
+    // Must be an indirect reference
+    pub pages: IndirectObject,
+}
 
-//         // Consume object header
-//         match pdf.next() {
-//             Some(Token::IndirectRef(_, _)) => (),
-//             Some(t) => panic!("Catalog should start with an indirect reference;  found {t:?}"),
-//             None => panic!("Catalog should start with an indirect reference"),
-//         };
+impl From<&[u8]> for Catalog {
+    fn from(bytes: &[u8]) -> Self {
+        match Object::try_from(bytes).unwrap() {
+            Object::Dictionary(dict) => Self::from(dict),
+            _ => panic!("Trailer should be a dictionary"),
+        }
+    }
+}
 
-//         match pdf.next() {
-//             Some(Token::DictBegin) => (),
-//             Some(t) => panic!("Catalog should be a dictionnary; found {t:?}"),
-//             None => panic!("Catalog should be a dictionnary"),
-//         };
+impl From<Dictionary> for Catalog {
+    fn from(value: Dictionary) -> Self {
+        Catalog {
+            pages: match value.get("Pages").unwrap() {
+                Object::Ref((obj, gen)) => (*obj, *gen),
+                _ => panic!("Pages should be an indirect object"),
+            },
+        }
+    }
+}
 
-//         let mut pages = None;
+#[cfg(test)]
+mod tests {
 
-//         while let Some(t) = pdf.next() {
-//             match t {
-//                 Token::Name("Type") => assert_eq!(pdf.next(), Some(Token::Name("Catalog"))),
-//                 Token::Name("Pages") => match pdf.next() {
-//                     Some(Token::IndirectRef(obj, gen)) => pages = Some((obj, gen)),
-//                     Some(t) => panic!("Pages should be an indirect reference; found {t:?}"),
-//                     None => panic!("Pages should be an indirect reference"),
-//                 },
-//                 Token::DictEnd => break,
-//                 a => panic!("Unexpected key was found in dictionnary catalog {a:?}"),
-//             };
-//         }
-//         Catalog { pages }
-//     }
-// }
+    use super::*;
 
-// #[cfg(test)]
-// mod tests {
-//     #[test]
-//     fn test_catalog() {
-//         let catalog = Catalog::from(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice());
-//         assert_eq!(
-//             catalog,
-//             Catalog {
-//                 pages: Some((2, 0))
-//             }
-//         )
-//     }
-// }
+    #[test]
+    fn test_catalog() {
+        let catalog = Catalog::from(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice());
+        assert_eq!(catalog, Catalog { pages: (2, 0) })
+    }
+}
