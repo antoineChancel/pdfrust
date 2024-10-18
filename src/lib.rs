@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 pub mod info;
 pub mod object;
 pub mod structures;
@@ -9,6 +11,16 @@ pub enum PdfVersion {
     V1_3,
     V1_4,
     V1_7,
+}
+
+impl Display for PdfVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PdfVersion::V1_3 => write!(f, "1.3"),
+            PdfVersion::V1_4 => write!(f, "1.4"),
+            PdfVersion::V1_7 => write!(f, "1.7"),
+        }
+    }
 }
 
 pub fn pdf_version(s: &[u8]) -> PdfVersion {

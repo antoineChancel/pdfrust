@@ -23,7 +23,7 @@ fn main() {
 
     // Pdf header with specifications version
     let version = pdfrust::pdf_version(&file[..8]);
-    println!("Pdf version: {version:?}");
+    println!("Pdf version: {version}");
 
     // Check that pdf file ends with %%EOF
     let file = file.trim_ascii();
@@ -36,19 +36,14 @@ fn main() {
 
     // Trailer
     let trailer = pdfrust::trailer(&file);
-    println!("{trailer:?}");
-
-    // Catalog
-    // let catalog_idx = xref_table.get(&trailer.root).unwrap();
-    // let catalog = pdfrust::catalog(&file[*catalog_idx..]);
-    // println!("{catalog:?}");
+    // println!("{trailer:?}");
 
     // Information
     match trailer.info {
         Some(info) => {
             let info_idx = xref_table.get(&info).unwrap();
             let info = pdfrust::info(&file[*info_idx..]);
-            println!("{info:?}");
+            println!("{info}");
         }
         None => println!("No info dictionary found"),
     }

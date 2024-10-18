@@ -1,4 +1,6 @@
+use std::fmt::Display;
 use super::object::{Dictionary, Object};
+
 
 #[derive(Debug, PartialEq)]
 pub struct Info {
@@ -6,8 +8,15 @@ pub struct Info {
     author: Option<String>,
     creator: Option<String>,
     producer: Option<String>,
-    creation_date: Option<String>,
-    mod_date: Option<String>,
+    creation_date: Option<String>, // TODO: convert to DateTime
+    mod_date: Option<String>, // TODO: convert to DateTime
+}
+
+impl Display for Info {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Title: {:?}\nAuthor: {:?}\nCreator: {:?}\nProducer: {:?}\nCreationDate: {:?}\nModDate: {:?}",
+            self.title, self.author, self.creator, self.producer, self.creation_date, self.mod_date)
+    }
 }
 
 impl From<&[u8]> for Info {
