@@ -1,4 +1,3 @@
-use pdfrust;
 use std::env;
 
 struct Config {
@@ -31,25 +30,30 @@ fn main() {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Cross reference table
-    let xref_table = pdfrust::xref::xref_table(&file);
+    // Cross reference table extraction
+    pdfrust::xref::xref_table(&file);
 
     // Trailer
     let trailer = pdfrust::trailer(&file);
-    // println!("{trailer:?}");
+    println!("{trailer:?}");
 
     // Information
-    match trailer.info {
-        Some(info) => {
-            let info_idx = xref_table.get(&info).unwrap();
-            let info = pdfrust::info(&file[*info_idx..]);
-            println!("{info}");
-        }
-        None => println!("No info dictionary found"),
-    }
+    // match trailer.info {
+    //     Some(info) => {
+    //         let info_idx = XREF.get(&info).unwrap();
+    //         let info = pdfrust::info(&file[*info_idx..]);
+    //         println!("{info}");
+    //     }
+    //     None => println!("No info dictionary found"),
+    // }
+
+    // Catalog
+    // let catalog_idx = XREF.get(&trailer.root).unwrap();
+    // let catalog = pdfrust::catalog(&file[*catalog_idx..]);
+    // println!("{catalog:?}");
 
     // Pages
-    // let pages_idx = xref_table.get(&catalog.pages.unwrap()).unwrap();
-    // let pages = pdfrust::pages(&file[*pages_idx..], &xref_table);
+    // let pages_idx: &usize = xref.get(&catalog.pages.unwrap()).unwrap();
+    // let pages = pdfrust::pages(&file[*pages_idx..], &xref);
     // println!("{pages:?}");
 }

@@ -1,4 +1,7 @@
-use crate::object::{Array, Dictionary, IndirectObject, Numeric, Object};
+use crate::{
+    object::{Array, Dictionary, IndirectObject, Numeric, Object},
+    xref::XrefTable,
+};
 
 // Trailer structure
 #[derive(Debug, PartialEq)]

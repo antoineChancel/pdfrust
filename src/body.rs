@@ -320,7 +320,10 @@
 //     }
 // }
 
-use crate::object::{Dictionary, IndirectObject, Object};
+use crate::{
+    info::Info,
+    object::{Dictionary, IndirectObject, Object},
+};
 
 // Document Catalog
 // Defined in page 139;  commented is to be implemented
