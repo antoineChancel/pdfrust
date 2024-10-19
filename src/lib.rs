@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use xref::XrefTable;
-
 pub mod body;
 pub mod info;
 pub mod object;

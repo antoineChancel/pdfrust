@@ -121,8 +121,6 @@ pub fn xref_table(file_stream: &[u8]) {
 #[cfg(test)]
 mod tests {
 
-    use std::borrow::BorrowMut;
-
     use super::*;
 
     #[test]
@@ -181,7 +179,6 @@ mod tests {
             assert_eq!(xref.get(&(1, 0)), Some(&XrefValue::Offset(10)));
             assert_eq!(xref.get(&(2, 0)), Some(&XrefValue::Offset(79)));
             assert_eq!(xref.get(&(5, 0)), Some(&XrefValue::Offset(380)));
-
         });
     }
 }
