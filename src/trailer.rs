@@ -1,4 +1,7 @@
-use crate::{object::{Array, Dictionary, IndirectObject, Numeric, Object}, xref::XrefTable};
+use crate::{
+    object::{Array, Dictionary, IndirectObject, Numeric, Object},
+    xref::XrefTable,
+};
 
 // Trailer structure
 #[derive(Debug, PartialEq)]
@@ -18,7 +21,7 @@ pub struct Trailer<'a> {
 }
 
 impl<'a> Trailer<'a> {
-    pub fn new(bytes: &'a [u8], xref: &'a XrefTable ) -> Self {
+    pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Self {
         match Object::new(bytes, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),

@@ -91,7 +91,11 @@ pub struct Tokenizer<'a> {
 
 impl<'a> Tokenizer<'a> {
     pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Tokenizer<'a> {
-        Tokenizer { bytes, curr_idx: 0, xref }
+        Tokenizer {
+            bytes,
+            curr_idx: 0,
+            xref,
+        }
     }
 
     pub fn peek(&mut self, lap: usize) -> Option<Token<'a>> {

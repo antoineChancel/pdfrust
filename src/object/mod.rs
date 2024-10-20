@@ -145,8 +145,10 @@ mod tests {
     #[test]
     fn test_dictionnary_0() {
         let xref = &xref::XrefTable::new();
-        let mut t =
-            Tokenizer::new(b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>", &xref);
+        let mut t = Tokenizer::new(
+            b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>",
+            &xref,
+        );
         let dict = Dictionary::try_from(&mut t).unwrap();
         assert_eq!(
             dict.get(&String::from("Title")),
@@ -165,8 +167,10 @@ mod tests {
     #[test]
     fn test_object_catalog() {
         let xref = &XrefTable::new();
-        let mut t =
-            Tokenizer::new(b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj", &xref);
+        let mut t = Tokenizer::new(
+            b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj",
+            &xref,
+        );
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -219,12 +223,21 @@ mod tests {
                     d.get(&String::from("Type")),
                     Some(&Object::Name(String::from("Page")))
                 );
-                assert_eq!(d.get(&String::from("Parent")), Some(&Object::Ref((2, 0), &xref)));
-                assert_eq!(d.get(&String::from("Contents")), Some(&Object::Ref((5, 0), &XrefTable::new())));
+                assert_eq!(
+                    d.get(&String::from("Parent")),
+                    Some(&Object::Ref((2, 0), &xref))
+                );
+                assert_eq!(
+                    d.get(&String::from("Contents")),
+                    Some(&Object::Ref((5, 0), &XrefTable::new()))
+                );
                 match d.get(&String::from("Resources")) {
                     Some(Object::Dictionary(d)) => match d.get(&String::from("Font")) {
                         Some(Object::Dictionary(d)) => {
-                            assert_eq!(d.get(&String::from("F1")), Some(&Object::Ref((4, 0), &XrefTable::new())));
+                            assert_eq!(
+                                d.get(&String::from("F1")),
+                                Some(&Object::Ref((4, 0), &XrefTable::new()))
+                            );
                         }
                         _ => panic!("Resources should be a dictionnary"),
                     },

@@ -320,7 +320,10 @@
 //     }
 // }
 
-use crate::{object::{Dictionary, IndirectObject, Object}, xref::XrefTable};
+use crate::{
+    object::{Dictionary, IndirectObject, Object},
+    xref::XrefTable,
+};
 
 // Document Catalog
 // Defined in page 139;  commented is to be implemented
