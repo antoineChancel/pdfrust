@@ -1,3 +1,5 @@
+use crate::xref::XrefTable;
+
 // Tokenizer for PDF objects
 #[derive(Debug)]
 pub enum WhiteSpace {
@@ -31,7 +33,7 @@ pub enum Token<'a> {
     HexString(&'a [u8]),
     Name(&'a str),
     Comment(&'a [u8]),
-    IndirectRef(u32, u32),
+    IndirectRef((u32, u32), &'a XrefTable),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -84,11 +86,12 @@ impl From<&u8> for CharacterSet {
 pub struct Tokenizer<'a> {
     bytes: &'a [u8],
     curr_idx: usize,
+    xref: &'a XrefTable,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(bytes: &'a [u8]) -> Tokenizer<'a> {
-        Tokenizer { bytes, curr_idx: 0 }
+    pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Tokenizer<'a> {
+        Tokenizer { bytes, curr_idx: 0, xref }
     }
 
     pub fn peek(&mut self, lap: usize) -> Option<Token<'a>> {
@@ -245,7 +248,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                                         _ => panic!("Unable to read generation number"),
                                     };
                                     self.next(); // consume 'R'
-                                    token = Some(Token::IndirectRef(obj, gen));
+                                    token = Some(Token::IndirectRef((obj, gen), self.xref));
                                 }
                                 Some(Token::String(b"obj")) => {
                                     self.next(); // consume 'gen'
@@ -282,30 +285,36 @@ impl<'a> Iterator for Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
 
+    use std::{collections::binary_heap, ops::BitAndAssign};
+
     use super::*;
 
     #[test]
     fn test_pdfbytes_iterator_skipped_comment() {
-        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", &binding);
         // comments are skipped by iterator
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string() {
-        let mut pdf = Tokenizer::new(b"(Hello World)");
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"(Hello World)", &binding);
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"Hello World")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
-        let mut pdf = Tokenizer::new(b"((Hello) (World))");
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"((Hello) (World))", &binding);
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_hex_string() {
-        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>");
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", &binding);
         assert_eq!(
             pdf.next(),
             Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E"))
@@ -314,7 +323,8 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_full() {
-        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", &binding);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type")));
@@ -330,7 +340,7 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Name("Kids")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
-        assert_eq!(pdf.next(), Some(Token::IndirectRef(3, 0)));
+        assert_eq!(pdf.next(), Some(Token::IndirectRef((3, 0), &binding)));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::ObjEnd));

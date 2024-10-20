@@ -1,5 +1,7 @@
 use std::fmt::Display;
 
+use xref::XrefTable;
+
 pub mod body;
 pub mod info;
 pub mod object;
@@ -35,22 +37,22 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
-pub fn trailer(file_stream: &[u8]) -> trailer::Trailer {
+pub fn trailer<'a>(file_stream: &'a[u8], xref: &'a XrefTable) -> trailer::Trailer<'a> {
     // locate trailer address
     let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
     // slice bytes just after trailer token
-    trailer::Trailer::from(&file_stream[starttrailer + 8..])
+    trailer::Trailer::new(&file_stream[starttrailer + 8..], xref)
 }
 
-pub fn catalog(file_stream: &[u8]) -> body::Catalog {
-    body::Catalog::from(file_stream)
+pub fn catalog(file_stream: &[u8], xref: &XrefTable) -> body::Catalog {
+    body::Catalog::new(file_stream, xref)
 }
 
-pub fn info(file_stream: &[u8]) -> info::Info {
-    info::Info::from(file_stream)
+pub fn info(file_stream: &[u8], xref: &XrefTable) -> info::Info {
+    info::Info::new(file_stream, xref)
 }
 
 // pub fn pages<'a>(

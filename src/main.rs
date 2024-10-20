@@ -31,10 +31,10 @@ fn main() {
     }
 
     // Cross reference table extraction
-    pdfrust::xref::xref_table(&file);
+    let xref = pdfrust::xref::xref_table(&file);
 
     // Trailer
-    let trailer = pdfrust::trailer(&file);
+    let trailer = pdfrust::trailer(&file, &xref);
     println!("{trailer:?}");
 
     // Information

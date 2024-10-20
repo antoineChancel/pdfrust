@@ -320,7 +320,7 @@
 //     }
 // }
 
-use crate::object::{Dictionary, IndirectObject, Object};
+use crate::{object::{Dictionary, IndirectObject, Object}, xref::XrefTable};
 
 // Document Catalog
 // Defined in page 139;  commented is to be implemented
@@ -331,20 +331,20 @@ pub struct Catalog {
     pub pages: IndirectObject,
 }
 
-impl From<&[u8]> for Catalog {
-    fn from(bytes: &[u8]) -> Self {
-        match Object::try_from(bytes).unwrap() {
+impl Catalog {
+    pub fn new(bytes: &[u8], xref: &XrefTable) -> Self {
+        match Object::new(bytes, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
     }
 }
 
-impl From<Dictionary> for Catalog {
+impl From<Dictionary<'_>> for Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen)) => (*obj, *gen),
+                Object::Ref((obj, gen), _xref) => (*obj, *gen),
                 _ => panic!("Pages should be an indirect object"),
             },
         }
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::from(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice());
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), &XrefTable::new());
         assert_eq!(catalog, Catalog { pages: (2, 0) })
     }
 }

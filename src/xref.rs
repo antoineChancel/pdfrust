@@ -1,24 +1,8 @@
-use super::{body, info, object};
-use std::cell::RefCell;
+use super::object;
 use std::collections::HashMap;
-// Safe as single threaded
-thread_local!(pub static XREF: RefCell<XrefTable> = RefCell::new(XrefTable::new()));
 
 type Offset = usize;
-
-#[derive(Debug, PartialEq)]
-pub enum BodyObject {
-    Catalog(body::Catalog),
-    Info(info::Info),
-}
-
-#[derive(PartialEq, Debug)]
-pub enum XrefValue {
-    Offset(Offset),
-    Object(Option<BodyObject>),
-}
-
-pub type XrefTable = HashMap<object::IndirectObject, XrefValue>;
+pub type XrefTable = HashMap<object::IndirectObject, Offset>;
 
 #[derive(Debug, PartialEq)]
 pub struct XrefEntry {
@@ -75,22 +59,21 @@ fn xref_table_subsection_entry(line: &str) -> Option<XrefEntry> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines) {
+fn xref_table_subsection(line: &mut std::str::Lines) -> HashMap<(u32, u32), usize> {
+    let mut table = HashMap::new();
+
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
     for object_idx in start..start + size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
-                XREF.with(|xref| {
-                    xref.borrow_mut().insert(
-                        (object_idx as u32, o.generation as u32),
-                        XrefValue::Offset(o.offset),
-                    )
-                });
+                table.insert((object_idx as u32, o.generation as u32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }
     }
+
+    table
 }
 
 fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
@@ -103,7 +86,7 @@ fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
 }
 
 // Parse PDF xref table
-pub fn xref_table(file_stream: &[u8]) {
+pub fn xref_table(file_stream: &[u8]) -> XrefTable {
     // Read the cross reference table by lines
     let mut line = xref_slice(&file_stream).lines();
 
@@ -172,13 +155,10 @@ mod tests {
     #[test]
     fn xref_table_valid() {
         let xref_sample = b"xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
-        xref_table(xref_sample);
-        XREF.with(|xref| {
-            let xref = xref.borrow_mut();
-            assert_eq!(xref.len(), 6);
-            assert_eq!(xref.get(&(1, 0)), Some(&XrefValue::Offset(10)));
-            assert_eq!(xref.get(&(2, 0)), Some(&XrefValue::Offset(79)));
-            assert_eq!(xref.get(&(5, 0)), Some(&XrefValue::Offset(380)));
-        });
+        let table = xref_table(xref_sample);
+        assert_eq!(table.len(), 6);
+        assert_eq!(table.get(&(1, 0)), Some(&10));
+        assert_eq!(table.get(&(2, 0)), Some(&79));
+        assert_eq!(table.get(&(5, 0)), Some(&380));
     }
 }

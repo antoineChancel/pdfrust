@@ -1,3 +1,5 @@
+use crate::xref::XrefTable;
+
 use super::object::{Dictionary, Object};
 use std::fmt::Display;
 
@@ -18,16 +20,16 @@ impl Display for Info {
     }
 }
 
-impl From<&[u8]> for Info {
-    fn from(bytes: &[u8]) -> Self {
-        match Object::try_from(bytes).unwrap() {
+impl Info {
+    pub fn new(bytes: &[u8], xref: &XrefTable) -> Self {
+        match Object::new(bytes, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
     }
 }
 
-impl From<Dictionary> for Info {
+impl From<Dictionary<'_>> for Info {
     fn from(value: Dictionary) -> Self {
         Info {
             title: match value.get("Title") {
@@ -70,8 +72,9 @@ mod tests {
 
     #[test]
     fn test_info_dict_1() {
-        let info_object = b"1 0 obj\n<< /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)\n/CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')\n>>\nendobj";
-        let info = Info::from(info_object.as_slice());
+        let bytes = b"1 0 obj\n<< /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)\n/CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')\n>>\nendobj";
+        let xref = XrefTable::new();
+        let info = Info::new(bytes.as_slice(), &xref);
         assert_eq!(
             info,
             Info {
