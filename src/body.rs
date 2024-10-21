@@ -347,7 +347,7 @@ impl From<Dictionary<'_>> for Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen), _xref) => (*obj, *gen),
+                Object::Ref((obj, gen), _xref, _bytes) => (*obj, *gen),
                 _ => panic!("Pages should be an indirect object"),
             },
         }

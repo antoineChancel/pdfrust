@@ -20,7 +20,7 @@ pub enum Object<'a> {
     Name(Name),
     String(String),
     Numeric(Numeric),
-    Ref(IndirectObject, &'a XrefTable),
+    Ref(IndirectObject, &'a XrefTable, &'a [u8]),
 }
 
 impl<'a> TryFrom<&mut Tokenizer<'a>> for Array<'a> {
@@ -65,7 +65,9 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Dictionary<'a> {
                         }
                         Some(Token::Name(n)) => Object::Name(String::from(n)),
                         Some(Token::Numeric(n)) => Object::Numeric(n),
-                        Some(Token::IndirectRef((obj, gen), xref)) => Object::Ref((obj, gen), xref),
+                        Some(Token::IndirectRef((obj, gen), xref, bytes)) => {
+                            Object::Ref((obj, gen), xref, bytes)
+                        }
                         Some(t) => panic!(
                             "Unexpected token found in dictionary value {token:?}",
                             token = t
@@ -129,7 +131,7 @@ impl<'a> TryFrom<Token<'a>> for Object<'a> {
             Token::HexString(s) => Ok(Object::String(String::from(
                 std::str::from_utf8(s).unwrap(),
             ))),
-            Token::IndirectRef((obj, gen), xref) => Ok(Object::Ref((obj, gen), xref)),
+            Token::IndirectRef((obj, gen), xref, bytes) => Ok(Object::Ref((obj, gen), xref, bytes)),
             t => panic!("Unexpected token found in object{t:?}"),
         }
     }
@@ -186,7 +188,8 @@ mod tests {
     #[test]
     fn test_object_pages() {
         let xref = &XrefTable::new();
-        let mut t = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj", &xref);
+        let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj";
+        let mut t = Tokenizer::new(bytes, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -205,7 +208,7 @@ mod tests {
                 assert_eq!(d.get(&String::from("Count")), Some(&Object::Numeric(1)));
                 assert_eq!(
                     d.get(&String::from("Kids")),
-                    Some(&Object::Array(vec![Object::Ref((3, 0), &XrefTable::new())]))
+                    Some(&Object::Array(vec![Object::Ref((3, 0), xref, bytes)]))
                 )
             }
             Ok(_) => todo!(),
@@ -216,7 +219,8 @@ mod tests {
     #[test]
     fn test_object_page() {
         let xref = &XrefTable::new();
-        let mut t = Tokenizer::new(b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj", &xref);
+        let bytes = b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj";
+        let mut t = Tokenizer::new(bytes, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -225,18 +229,18 @@ mod tests {
                 );
                 assert_eq!(
                     d.get(&String::from("Parent")),
-                    Some(&Object::Ref((2, 0), &xref))
+                    Some(&Object::Ref((2, 0), &xref, bytes))
                 );
                 assert_eq!(
                     d.get(&String::from("Contents")),
-                    Some(&Object::Ref((5, 0), &XrefTable::new()))
+                    Some(&Object::Ref((5, 0), &xref, bytes))
                 );
                 match d.get(&String::from("Resources")) {
                     Some(Object::Dictionary(d)) => match d.get(&String::from("Font")) {
                         Some(Object::Dictionary(d)) => {
                             assert_eq!(
                                 d.get(&String::from("F1")),
-                                Some(&Object::Ref((4, 0), &XrefTable::new()))
+                                Some(&Object::Ref((4, 0), &xref, bytes))
                             );
                         }
                         _ => panic!("Resources should be a dictionnary"),

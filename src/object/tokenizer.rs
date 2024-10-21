@@ -33,7 +33,7 @@ pub enum Token<'a> {
     HexString(&'a [u8]),
     Name(&'a str),
     Comment(&'a [u8]),
-    IndirectRef((u32, u32), &'a XrefTable),
+    IndirectRef((u32, u32), &'a XrefTable, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -252,7 +252,11 @@ impl<'a> Iterator for Tokenizer<'a> {
                                         _ => panic!("Unable to read generation number"),
                                     };
                                     self.next(); // consume 'R'
-                                    token = Some(Token::IndirectRef((obj, gen), self.xref));
+                                    token = Some(Token::IndirectRef(
+                                        (obj, gen),
+                                        self.xref,
+                                        &self.bytes,
+                                    ));
                                 }
                                 Some(Token::String(b"obj")) => {
                                     self.next(); // consume 'gen'
@@ -288,8 +292,6 @@ impl<'a> Iterator for Tokenizer<'a> {
 
 #[cfg(test)]
 mod tests {
-
-    use std::{collections::binary_heap, ops::BitAndAssign};
 
     use super::*;
 
@@ -344,7 +346,10 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Numeric(1)));
         assert_eq!(pdf.next(), Some(Token::Name("Kids")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
-        assert_eq!(pdf.next(), Some(Token::IndirectRef((3, 0), &binding)));
+        assert_eq!(
+            pdf.next(),
+            Some(Token::IndirectRef((3, 0), &binding, &pdf.bytes))
+        );
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::ObjEnd));

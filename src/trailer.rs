@@ -1,4 +1,5 @@
 use crate::{
+    body::Catalog,
     object::{Array, Dictionary, IndirectObject, Numeric, Object},
     xref::XrefTable,
 };
@@ -11,7 +12,7 @@ pub struct Trailer<'a> {
     // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
     prev: Option<Numeric>,
     // Catalogue dictionnary or a reference to the root object of the page tree
-    pub root: IndirectObject,
+    pub root: Option<Catalog>,
     // Encryption dictionnary
     encrypt: Option<IndirectObject>,
     // Information dictionary containing metadata
@@ -42,16 +43,21 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Prev should be a numeric"),
             },
             root: match value.get("Root").unwrap() {
-                Object::Ref((obj, gen), _xref) => (*obj, *gen),
-                _ => panic!("Root should be an indirect object"),
+                Object::Ref((obj, gen), xref, bytes) => {
+                    match xref.get(&(*obj, *gen)) {
+                        Some(address) => Some(Catalog::new(&bytes[*address..], xref)),
+                        None => None
+                    }
+                }
+                _ => panic!("Root should be a Catalog object"),
             },
             encrypt: match value.get("Encrypt") {
-                Some(Object::Ref((obj, gen), _xref)) => Some((*obj, *gen)),
+                Some(Object::Ref((obj, gen), _xref, _bytes)) => Some((*obj, *gen)),
                 None => None,
                 _ => panic!("Encrypt should be an indirect object"),
             },
             info: match value.get("Info") {
-                Some(Object::Ref((obj, gen), _xref)) => Some((*obj, *gen)),
+                Some(Object::Ref((obj, gen), _xref, _bytes)) => Some((*obj, *gen)),
                 None => None,
                 _ => panic!("Info should be an indirect object"),
             },
@@ -66,6 +72,7 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
 
 #[cfg(test)]
 mod test {
+
     use super::*;
 
     #[test]
@@ -76,7 +83,7 @@ mod test {
             Trailer::new(bytes, &xref),
             Trailer {
                 size: 6,
-                root: (1, 0),
+                root: None,
                 info: None,
                 prev: None,
                 encrypt: None,
@@ -96,7 +103,7 @@ mod test {
             Trailer::new(bytes, &xref),
             Trailer {
                 size: 26,
-                root: (13, 0),
+                root: None,
                 info: Some((1, 0)),
                 prev: None,
                 encrypt: None,
