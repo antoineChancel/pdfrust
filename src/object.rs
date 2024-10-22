@@ -1,10 +1,8 @@
 // PDF basic objects
+use crate::tokenizer::{Token, Tokenizer};
 use std::collections::HashMap;
-use tokenizer::{Token, Tokenizer};
 
 use crate::xref::XrefTable;
-
-mod tokenizer;
 
 pub type Name = String;
 pub type IndirectObject = (u32, u32);

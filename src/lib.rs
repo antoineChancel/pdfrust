@@ -5,6 +5,7 @@ use xref::XrefTable;
 pub mod body;
 pub mod info;
 pub mod object;
+pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
 
