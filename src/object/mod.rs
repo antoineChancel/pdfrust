@@ -106,8 +106,8 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Object<'a> {
 }
 
 impl<'a> Object<'a> {
-    pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Self {
-        Self::try_from(&mut Tokenizer::new(bytes, xref)).unwrap()
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Self {
+        Self::try_from(&mut Tokenizer::new(bytes, curr_idx, xref)).unwrap()
     }
 }
 
@@ -149,6 +149,7 @@ mod tests {
         let xref = &xref::XrefTable::new();
         let mut t = Tokenizer::new(
             b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>",
+            0,
             &xref,
         );
         let dict = Dictionary::try_from(&mut t).unwrap();
@@ -171,6 +172,7 @@ mod tests {
         let xref = &XrefTable::new();
         let mut t = Tokenizer::new(
             b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj",
+            0,
             &xref,
         );
         match Object::try_from(&mut t) {
@@ -189,7 +191,7 @@ mod tests {
     fn test_object_pages() {
         let xref = &XrefTable::new();
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj";
-        let mut t = Tokenizer::new(bytes, &xref);
+        let mut t = Tokenizer::new(bytes, 0, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -220,7 +222,7 @@ mod tests {
     fn test_object_page() {
         let xref = &XrefTable::new();
         let bytes = b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj";
-        let mut t = Tokenizer::new(bytes, &xref);
+        let mut t = Tokenizer::new(bytes, 0, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(

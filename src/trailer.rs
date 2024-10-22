@@ -22,8 +22,8 @@ pub struct Trailer<'a> {
 }
 
 impl<'a> Trailer<'a> {
-    pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Self {
-        match Object::new(bytes, xref) {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Self {
+        match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
@@ -43,12 +43,10 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Prev should be a numeric"),
             },
             root: match value.get("Root").unwrap() {
-                Object::Ref((obj, gen), xref, bytes) => {
-                    match xref.get(&(*obj, *gen)) {
-                        Some(address) => Some(Catalog::new(&bytes[*address..], xref)),
-                        None => None
-                    }
-                }
+                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
+                    Some(address) => Some(Catalog::new(&bytes, *address, xref)),
+                    None => None,
+                },
                 _ => panic!("Root should be a Catalog object"),
             },
             encrypt: match value.get("Encrypt") {
@@ -80,7 +78,7 @@ mod test {
         let bytes = b"<<\n  /Size 6\n  /Root 1 0 R\n>>".as_slice();
         let xref = XrefTable::new();
         assert_eq!(
-            Trailer::new(bytes, &xref),
+            Trailer::new(bytes, 0, &xref),
             Trailer {
                 size: 6,
                 root: None,
@@ -100,7 +98,7 @@ mod test {
                 .as_slice();
         let xref = XrefTable::new();
         assert_eq!(
-            Trailer::new(bytes, &xref),
+            Trailer::new(bytes, 0, &xref),
             Trailer {
                 size: 26,
                 root: None,

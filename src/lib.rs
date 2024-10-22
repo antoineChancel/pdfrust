@@ -44,15 +44,15 @@ pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trail
         None => panic!("Missing trailer token in the entire PDF"),
     };
     // slice bytes just after trailer token
-    trailer::Trailer::new(&file_stream[starttrailer + 8..], xref)
+    trailer::Trailer::new(&file_stream, starttrailer + 8, xref)
 }
 
-pub fn catalog(file_stream: &[u8], xref: &XrefTable) -> body::Catalog {
-    body::Catalog::new(file_stream, xref)
+pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> body::Catalog {
+    body::Catalog::new(file_stream, curr_idx, xref)
 }
 
-pub fn info(file_stream: &[u8], xref: &XrefTable) -> info::Info {
-    info::Info::new(file_stream, xref)
+pub fn info(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> info::Info {
+    info::Info::new(file_stream, curr_idx, xref)
 }
 
 // pub fn pages<'a>(

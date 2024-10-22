@@ -335,8 +335,8 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub fn new(bytes: &[u8], xref: &XrefTable) -> Self {
-        match Object::new(bytes, xref) {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+        match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), &XrefTable::new());
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XrefTable::new());
         assert_eq!(catalog, Catalog { pages: (2, 0) })
     }
 }

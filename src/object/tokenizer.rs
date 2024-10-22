@@ -90,10 +90,10 @@ pub struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(bytes: &'a [u8], xref: &'a XrefTable) -> Tokenizer<'a> {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Tokenizer<'a> {
         Tokenizer {
             bytes,
-            curr_idx: 0,
+            curr_idx,
             xref,
         }
     }
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn test_pdfbytes_iterator_skipped_comment() {
         let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", &binding);
+        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", 0, &binding);
         // comments are skipped by iterator
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
     }
@@ -306,21 +306,21 @@ mod tests {
     #[test]
     fn test_pdfbytes_iterator_litteral_string() {
         let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"(Hello World)", &binding);
+        let mut pdf = Tokenizer::new(b"(Hello World)", 0, &binding);
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"Hello World")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
         let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"((Hello) (World))", &binding);
+        let mut pdf = Tokenizer::new(b"((Hello) (World))", 0, &binding);
         assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
     }
 
     #[test]
     fn test_pdfbytes_iterator_hex_string() {
         let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", &binding);
+        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", 0, &binding);
         assert_eq!(
             pdf.next(),
             Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E"))
@@ -330,7 +330,7 @@ mod tests {
     #[test]
     fn test_pdfbytes_iterator_full() {
         let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", &binding);
+        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", 0, &binding);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type")));
