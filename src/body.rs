@@ -248,21 +248,21 @@ impl From<Dictionary<'_>> for Page {
             },
             media_box: match value.get("MediaBox") {
                 Some(Object::Array(arr)) => Some([
-                    match arr[0] {
-                        Object::Numeric(n) => n,
-                        _ => panic!("MediaBox should be an array of numeric"),
+                    match &arr[0] {
+                        Object::Numeric(n) => *n,
+                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
-                    match arr[1] {
-                        Object::Numeric(n) => n,
-                        _ => panic!("MediaBox should be an array of numeric"),
+                    match &arr[1] {
+                        Object::Numeric(n) => *n,
+                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
-                    match arr[2] {
-                        Object::Numeric(n) => n,
-                        _ => panic!("MediaBox should be an array of numeric"),
+                    match &arr[2] {
+                        Object::Numeric(n) => *n,
+                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
-                    match arr[3] {
-                        Object::Numeric(n) => n,
-                        _ => panic!("MediaBox should be an array of numeric"),
+                    match &arr[3] {
+                        Object::Numeric(n) => *n,
+                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
                 ]),
                 Some(a) => panic!("MediaBox should be an array; found {a:?}"),

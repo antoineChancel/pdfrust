@@ -30,30 +30,10 @@ fn main() {
         panic!("PDF file is corrupted; not consistent trailing charaters");
     }
 
-    // Cross reference table extraction
+    // Cross reference table
     let xref = pdfrust::xref::xref_table(&file);
 
     // Trailer
     let trailer = pdfrust::trailer(&file, &xref);
-    println!("{trailer:?}");
-
-    // Information
-    // match trailer.info {
-    //     Some(info) => {
-    //         let info_idx = XREF.get(&info).unwrap();
-    //         let info = pdfrust::info(&file[*info_idx..]);
-    //         println!("{info}");
-    //     }
-    //     None => println!("No info dictionary found"),
-    // }
-
-    // Catalog
-    // let catalog_idx = XREF.get(&trailer.root).unwrap();
-    // let catalog = pdfrust::catalog(&file[*catalog_idx..]);
-    // println!("{catalog:?}");
-
-    // Pages
-    // let pages_idx: &usize = xref.get(&catalog.pages.unwrap()).unwrap();
-    // let pages = pdfrust::pages(&file[*pages_idx..], &xref);
-    // println!("{pages:?}");
+    println!("{trailer:#?}");
 }
