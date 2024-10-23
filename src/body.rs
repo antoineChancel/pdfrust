@@ -217,8 +217,8 @@ impl From<Dictionary<'_>> for PageTreeNode {
 pub struct Page {
     // parent: PageTreeParent<'a>, // The page tree node's parent
     last_modified: Option<String>, // Date and time of last modification
-    resources: Resources,     // Resource dictionary
-    media_box: Option<Rectangle>,          //rectangle
+    resources: Resources,          // Resource dictionary
+    media_box: Option<Rectangle>,  //rectangle
 }
 
 impl Page {
@@ -266,7 +266,7 @@ impl From<Dictionary<'_>> for Page {
                     },
                 ]),
                 Some(a) => panic!("MediaBox should be an array; found {a:?}"),
-                None => None
+                None => None,
             },
         }
     }
