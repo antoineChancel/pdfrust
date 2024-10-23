@@ -1,5 +1,6 @@
 use crate::{
     body::Catalog,
+    info::Info,
     object::{Array, Dictionary, IndirectObject, Numeric, Object},
     xref::XrefTable,
 };
@@ -16,7 +17,7 @@ pub struct Trailer<'a> {
     // Encryption dictionnary
     encrypt: Option<IndirectObject>,
     // Information dictionary containing metadata
-    pub info: Option<IndirectObject>,
+    pub info: Option<Info>,
     // Array of two byte-strings constituting a file identifier
     id: Option<Array<'a>>,
 }
@@ -55,7 +56,10 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Encrypt should be an indirect object"),
             },
             info: match value.get("Info") {
-                Some(Object::Ref((obj, gen), _xref, _bytes)) => Some((*obj, *gen)),
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get(&(*obj, *gen)) {
+                    Some(address) => Some(Info::new(&bytes, *address, xref)),
+                    None => None,
+                },
                 None => None,
                 _ => panic!("Info should be an indirect object"),
             },
@@ -102,7 +106,7 @@ mod test {
             Trailer {
                 size: 26,
                 root: None,
-                info: Some((1, 0)),
+                info: None,
                 prev: None,
                 encrypt: None,
                 id: Some(vec![
