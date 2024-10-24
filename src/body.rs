@@ -8,6 +8,50 @@ use crate::{
 type Rectangle = [Numeric; 4];
 
 #[derive(Debug, PartialEq)]
+struct StreamDictionary {
+    length: Numeric,
+    filter: Option<Name>,
+}
+
+impl From<Dictionary<'_>> for StreamDictionary {
+    fn from(value: Dictionary) -> Self {
+        StreamDictionary {
+            length: match value.get("Length").unwrap() {
+                Object::Numeric(n) => *n,
+                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
+                    Some(address) => match Object::new(&bytes, *address, xref) {
+                        Object::Numeric(n) => n,
+                        _ => panic!("Length should be a numeric"),
+                    },
+                    None => panic!("Length should be an indirect object"),
+                },
+                _ => panic!("Length should be a numeric"),
+            },
+            filter: match value.get("Filter") {
+                Some(Object::Name(name)) => Some(name.clone()),
+                None => None,
+                _ => panic!("Filter should be a name"),
+            },
+        }
+    }
+}
+
+type StreamContent = Vec<u8>;
+
+#[derive(Debug, PartialEq)]
+struct Stream(StreamDictionary, StreamContent);
+
+impl Stream {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+        let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
+            Object::Stream(dict, stream) => (StreamDictionary::from(dict), stream),
+            _ => panic!("Stream should be a dictionary"),
+        };
+        Stream(dict, stream)
+    }
+}
+
+#[derive(Debug, PartialEq)]
 pub enum PageTreeKids {
     Page(Page),
     PageTreeNode(PageTreeNode),
@@ -219,6 +263,7 @@ pub struct Page {
     last_modified: Option<String>, // Date and time of last modification
     resources: Resources,          // Resource dictionary
     media_box: Option<Rectangle>,  //rectangle
+    contents: Option<Stream>,
 }
 
 impl Page {
@@ -267,6 +312,14 @@ impl From<Dictionary<'_>> for Page {
                 ]),
                 Some(a) => panic!("MediaBox should be an array; found {a:?}"),
                 None => None,
+            },
+            contents: match value.get("Contents") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get(&(*obj, *gen)) {
+                    Some(address) => Some(Stream::new(&bytes, *address, xref)),
+                    None => panic!("Resource dictionnary address not found in xref keys"),
+                },
+                None => None,
+                _ => panic!("Contents should be an indirect object"),
             },
         }
     }

@@ -107,6 +107,22 @@ impl<'a> Tokenizer<'a> {
         self.curr_idx = curr_idx;
         token
     }
+
+    pub fn next_n(&mut self, n: usize) -> Vec<u8> {
+        // skip whitespaces characters
+        loop {
+            if self.curr_idx >= self.bytes.len() {
+                break;
+            }
+            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                CharacterSet::WhiteSpace(_) => self.curr_idx += 1,
+                _ => break,
+            }
+        }
+        let bytes = Vec::from(&self.bytes[self.curr_idx..self.curr_idx + n]);
+        self.curr_idx += n;
+        bytes
+    }
 }
 
 impl<'a> Iterator for Tokenizer<'a> {
@@ -226,6 +242,9 @@ impl<'a> Iterator for Tokenizer<'a> {
                     let begin = self.curr_idx;
                     let mut is_numeric = true;
                     loop {
+                        if self.curr_idx >= self.bytes.len() {
+                            break;
+                        }
                         match CharacterSet::from(&self.bytes[self.curr_idx]) {
                             CharacterSet::Regular(
                                 b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',

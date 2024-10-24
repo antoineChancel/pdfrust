@@ -35,5 +35,5 @@ fn main() {
 
     // Trailer
     let trailer = pdfrust::trailer(&file, &xref);
-    println!("{trailer:#?}");
+    println!("{trailer:?}");
 }

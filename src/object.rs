@@ -92,7 +92,40 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Object<'a> {
             match tokenizer.next() {
                 Some(Token::ObjBegin) => continue 'start,
                 Some(Token::DictBegin) => {
-                    object = Object::Dictionary(Dictionary::try_from(&mut *tokenizer).unwrap());
+                    let dict = Dictionary::try_from(&mut *tokenizer).unwrap();
+                    // check if next token is stream
+                    object = match tokenizer.next() {
+                        Some(Token::StreamBegin) => {
+                            let length = match dict.get("Length") {
+                                Some(Object::Numeric(n)) => *n,
+                                // follow reference to indirect object is required to get the length
+                                Some(Object::Ref((obj, gen), xref, bytes)) => {
+                                    match xref.get(&(*obj, *gen)) {
+                                        Some(address) => {
+                                            let mut t = Tokenizer::new(bytes, *address, xref);
+                                            matches!(t.next(), Some(Token::Numeric(_)));
+                                            match t.next() {
+                                                Some(Token::Numeric(n)) => n,
+                                                Some(t) => panic!("Unexpected token found in object; found {t:?}"),
+                                                _ => panic!("Stream dictionary should have a Length key, {dict:?}"),
+                                            }
+                                        }
+                                        None => panic!(
+                                            "Stream dictionary should have a Length key, {dict:?}"
+                                        ),
+                                    }
+                                }
+                                _ => panic!("Stream dictionary should have a Length key, {dict:?}"),
+                            };
+                            // collect next n bytes from the stream
+                            Object::Stream(dict, tokenizer.next_n(length as usize))
+                        }
+                        _ => Object::Dictionary(dict),
+                    };
+                    break;
+                }
+                Some(Token::Numeric(n)) => {
+                    object = Object::Numeric(n);
                     break;
                 }
                 Some(t) => panic!("Unexpected token found in object; found {:?}", t),
@@ -210,6 +243,21 @@ mod tests {
                     d.get(&String::from("Kids")),
                     Some(&Object::Array(vec![Object::Ref((3, 0), xref, bytes)]))
                 )
+            }
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
+        }
+    }
+
+    #[test]
+    fn test_object_stream() {
+        let xref = &XrefTable::new();
+        let bytes = b"4 0 obj\n<<\n  /Length 10\n>>\nstream\n1234567890\nendstream\nendobj";
+        let mut t = Tokenizer::new(bytes, 0, &xref);
+        match Object::try_from(&mut t) {
+            Ok(Object::Stream(d, s)) => {
+                assert_eq!(d.get(&String::from("Length")), Some(&Object::Numeric(10)));
+                assert_eq!(s, b"1234567890");
             }
             Ok(_) => todo!(),
             Err(_) => todo!(),
