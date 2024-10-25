@@ -3,12 +3,12 @@ use std::fmt::Display;
 use xref::XrefTable;
 
 pub mod body;
+pub mod filters;
 pub mod info;
 pub mod object;
 pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
-pub mod filters;
 
 #[derive(Debug)]
 pub enum PdfVersion {

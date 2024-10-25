@@ -1,5 +1,5 @@
-use std::io::Read;
 use flate2::read::ZlibDecoder;
+use std::io::Read;
 
 pub fn flate_decode(bytes: &[u8]) -> String {
     println!("{:?}", bytes.len());
@@ -7,7 +7,9 @@ pub fn flate_decode(bytes: &[u8]) -> String {
     let mut s = String::new();
     match d.read_to_string(&mut s) {
         Ok(_) => (),
-        Err(e) => {panic!("Error: {:?}", e);},
+        Err(e) => {
+            panic!("Error: {:?}", e);
+        }
     }
     s
 }

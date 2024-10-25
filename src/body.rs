@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
+    filters,
     object::{Dictionary, IndirectObject, Name, Numeric, Object},
     xref::XrefTable,
-    filters,
 };
 
 type Rectangle = [Numeric; 4];
@@ -157,7 +157,11 @@ impl PageTreeNodeRoot {
     }
 
     pub fn extract(&self) -> String {
-        self.kids.iter().map(|kid| kid.extract()).collect::<Vec<String>>().join("\n")
+        self.kids
+            .iter()
+            .map(|kid| kid.extract())
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 }
 
@@ -258,7 +262,11 @@ impl PageTreeNode {
     }
 
     pub fn extract(&self) -> String {
-        self.kids.iter().map(|kid| kid.extract()).collect::<Vec<String>>().join("\n")
+        self.kids
+            .iter()
+            .map(|kid| kid.extract())
+            .collect::<Vec<String>>()
+            .join("\n")
     }
 }
 
@@ -306,12 +314,10 @@ impl Page {
     pub fn extract(&self) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => {
-                match stream.0.filter {
-                    Some(Filter::FlateDecode) => filters::flate_decode(&stream.1),
-                    None => String::from_utf8(stream.1.clone()).unwrap()
-                }
-            }
+            Some(stream) => match stream.0.filter {
+                Some(Filter::FlateDecode) => filters::flate_decode(&stream.1),
+                None => String::from_utf8(stream.1.clone()).unwrap(),
+            },
             None => panic!("Contents should not be empty"),
         }
     }
