@@ -29,6 +29,14 @@ impl<'a> Trailer<'a> {
             _ => panic!("Trailer should be a dictionary"),
         }
     }
+
+    pub fn extract(&self) -> String {
+        // Extract text
+        match &self.root {
+            Some(catalog) => catalog.extract(),
+            None => panic!("Root object is empty"),
+        }
+    }
 }
 
 impl<'a> From<Dictionary<'a>> for Trailer<'a> {

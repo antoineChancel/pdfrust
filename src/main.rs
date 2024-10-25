@@ -35,5 +35,6 @@ fn main() {
 
     // Trailer
     let trailer = pdfrust::trailer(&file, &xref);
-    println!("{trailer:?}");
+    let text = trailer.extract();
+    println!("{text}");
 }

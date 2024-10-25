@@ -3,14 +3,28 @@ use std::collections::HashMap;
 use crate::{
     object::{Dictionary, IndirectObject, Name, Numeric, Object},
     xref::XrefTable,
+    filters,
 };
 
 type Rectangle = [Numeric; 4];
+#[derive(Debug, PartialEq)]
+enum Filter {
+    FlateDecode,
+}
+
+impl From<Name> for Filter {
+    fn from(value: Name) -> Self {
+        match value.as_str() {
+            "FlateDecode" => Filter::FlateDecode,
+            filter => panic!("Filter name {filter:?} is currently not supported"),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
 struct StreamDictionary {
     length: Numeric,
-    filter: Option<Name>,
+    filter: Option<Filter>,
 }
 
 impl From<Dictionary<'_>> for StreamDictionary {
@@ -28,7 +42,7 @@ impl From<Dictionary<'_>> for StreamDictionary {
                 _ => panic!("Length should be a numeric"),
             },
             filter: match value.get("Filter") {
-                Some(Object::Name(name)) => Some(name.clone()),
+                Some(Object::Name(name)) => Some(Filter::from(name.clone())),
                 None => None,
                 _ => panic!("Filter should be a name"),
             },
@@ -69,6 +83,13 @@ impl PageTreeKids {
                 _ => panic!("Type should be a name"),
             },
             _ => panic!("PageTreeKids should be a dictionary"),
+        }
+    }
+
+    pub fn extract(&self) -> String {
+        match self {
+            PageTreeKids::Page(page) => page.extract(),
+            PageTreeKids::PageTreeNode(page_tree_node) => page_tree_node.extract(),
         }
     }
 }
@@ -133,6 +154,10 @@ impl PageTreeNodeRoot {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
+    }
+
+    pub fn extract(&self) -> String {
+        self.kids.iter().map(|kid| kid.extract()).collect::<Vec<String>>().join("\n")
     }
 }
 
@@ -231,6 +256,10 @@ impl PageTreeNode {
             _ => panic!("Trailer should be a dictionary"),
         }
     }
+
+    pub fn extract(&self) -> String {
+        self.kids.iter().map(|kid| kid.extract()).collect::<Vec<String>>().join("\n")
+    }
 }
 
 impl From<Dictionary<'_>> for PageTreeNode {
@@ -271,6 +300,19 @@ impl Page {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
+        }
+    }
+
+    pub fn extract(&self) -> String {
+        // Extract text
+        match &self.contents {
+            Some(stream) => {
+                match stream.0.filter {
+                    Some(Filter::FlateDecode) => filters::flate_decode(&stream.1),
+                    None => String::from_utf8(stream.1.clone()).unwrap()
+                }
+            }
+            None => panic!("Contents should not be empty"),
         }
     }
 }
@@ -339,6 +381,13 @@ impl Catalog {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
+        }
+    }
+
+    pub fn extract(&self) -> String {
+        match &self.pages {
+            Some(page_tree_node) => page_tree_node.extract(),
+            None => panic!("Pages should not be empty"),
         }
     }
 }

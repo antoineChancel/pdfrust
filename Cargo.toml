@@ -2,3 +2,6 @@
 name = "pdfrust"
 version = "0.1.0"
 edition = "2021"
+
+[dependencies]
+flate2 = { version = "1.0.17", features = ["zlib-ng"], default-features = false }

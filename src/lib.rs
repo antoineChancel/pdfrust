@@ -8,6 +8,7 @@ pub mod object;
 pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
+pub mod filters;
 
 #[derive(Debug)]
 pub enum PdfVersion {
