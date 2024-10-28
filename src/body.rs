@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    filters,
-    object::{Dictionary, IndirectObject, Name, Numeric, Object},
-    xref::XrefTable,
+    filters, object::{Dictionary, IndirectObject, Name, Numeric, Object}, text, xref::XrefTable
 };
 
 type Rectangle = [Numeric; 4];
@@ -312,6 +310,10 @@ impl Page {
     }
 
     pub fn extract(&self) -> String {
+        text::StreamContent::from(self.extract_stream().as_bytes()).get_text()
+    }
+
+    pub fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
             Some(stream) => match stream.0.filter {

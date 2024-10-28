@@ -25,8 +25,9 @@ enum StreamToken {
     EndArray,
     Operator(Operator),
     Name(String),
-    Numeric(i32),
+    Numeric(f32),
     Text(String),
+    Other(String)
 }
 
 impl<'a> From<&'a [u8]> for Stream<'a> {
@@ -57,28 +58,29 @@ impl<'a> Iterator for Stream<'a> {
                         while let Some(c) = self.0.next() {
                             match CharacterSet::from(c) {
                                 CharacterSet::WhiteSpace(_) => break,
-                                CharacterSet::Delimiter(_) => panic!("Invalid character"),
+                                CharacterSet::Delimiter(_) => buf.push(*c as char),
                                 CharacterSet::Regular(c) => buf.push(c as char),
                             }
                         }
                         return Some(StreamToken::Name(buf));
                     }
-                    Delimiter::Array => {
-                        match c {
-                            b'[' => return Some(StreamToken::BeginArray),
-                            b']' => return Some(StreamToken::EndArray),
-                            a => panic!("Invalid character {a:?}"),
-                        }
-                    }
+                    Delimiter::Array => match c {
+                        b'[' => return Some(StreamToken::BeginArray),
+                        b']' => return Some(StreamToken::EndArray),
+                        b'<' => return Some(StreamToken::Other("<".to_string())),
+                        b'{' => return Some(StreamToken::Other("{".to_string())),
+                        b'}' => return Some(StreamToken::Other("}".to_string())),
+                        c => panic!("Invalid character {}", *c as char),
+                    },
                     _ => panic!("Invalid character"),
-                }
+                },
                 CharacterSet::Regular(c) => {
                     buf.push(c as char);
                     while let Some(c) = self.0.next() {
                         match CharacterSet::from(c) {
                             CharacterSet::WhiteSpace(_) => break,
                             CharacterSet::Regular(c) => buf.push(c as char),
-                            CharacterSet::Delimiter(_) => panic!("Invalid character"),
+                            CharacterSet::Delimiter(_) => break,
                         }
                     }
                     return match buf.as_str() {
@@ -90,9 +92,9 @@ impl<'a> Iterator for Stream<'a> {
                         "Tf" => Some(StreamToken::Operator(Operator::Tf)),
                         "Tm" => Some(StreamToken::Operator(Operator::Tm)),
                         "TJ" => Some(StreamToken::Operator(Operator::TJ)),
-                        _ => match buf.parse::<i32>() {
+                        _ => match buf.parse::<f32>() {
                             Ok(n) => Some(StreamToken::Numeric(n)),
-                            Err(_) => None,
+                            Err(_) => Some(StreamToken::Other(buf)),
                         },
                     };
                 }
@@ -103,17 +105,16 @@ impl<'a> Iterator for Stream<'a> {
 }
 
 struct Text {
-    TD: Option<(i32, i32)>,
-    Td: Option<(i32, i32)>,
-    Tm: Option<(i32, i32, i32, i32, i32, i32)>,
-    Tf: Option<(String, i32)>,
+    TD: Option<(f32, f32)>,
+    Td: Option<(f32, f32)>,
+    Tm: Option<(f32, f32, f32, f32, f32, f32)>,
+    Tf: Option<(String, f32)>,
     Tj: Option<String>,
     TJ: Option<Vec<String>>,
 }
 
-impl From<&[u8]> for Text {
-    fn from(value: &[u8]) -> Self {
-        let mut stream_iter = Stream::from(value);
+impl<'a> From<&mut Stream<'a>> for Text {
+    fn from(value: &mut Stream<'a>) -> Self {
         let mut text = Text {
             TD: None,
             Td: None,
@@ -123,7 +124,7 @@ impl From<&[u8]> for Text {
             TJ: None,
         };
         let mut buf: Vec<StreamToken> = vec![];
-        while let Some(token) = stream_iter.next() {
+        while let Some(token) = value.next() {
             match token {
                 StreamToken::BeginText => continue,
                 StreamToken::EndText => break,
@@ -132,7 +133,7 @@ impl From<&[u8]> for Text {
                         text.Td = Some((
                             match buf[0] {
                                 StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                                _ => panic!("Invalid token, buf {buf:?}"),
                             },
                             match buf[1] {
                                 StreamToken::Numeric(n) => n,
@@ -187,11 +188,12 @@ impl From<&[u8]> for Text {
                         text.Tf = Some((
                             match &buf[0] {
                                 StreamToken::Name(n) => n.clone(),
-                                _ => panic!("Invalid token"),
+                                StreamToken::Other(n) => n.clone(), // may happen
+                                _ => panic!("Invalid token, buffer {buf:?}"),
                             },
                             match buf[1] {
                                 StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                                _ => panic!("Invalid token {:?}", buf),
                             },
                         ));
                         buf.clear();
@@ -226,39 +228,61 @@ impl From<&[u8]> for Text {
     }
 }
 
+impl From<&[u8]> for Text {
+    fn from(value: &[u8]) -> Self {
+        Self::from(&mut Stream::from(value))
+    }
+}
+
+pub struct StreamContent {
+    text: Vec<Text>,
+}
+
+impl From<&[u8]> for StreamContent {
+    fn from(value: &[u8]) -> Self {
+        let mut stream_iter = Stream::from(value);
+        let mut text = vec![];
+        while let Some(token) = stream_iter.next() {
+            match token {
+                StreamToken::BeginText => {
+                    text.push(Text::from(&mut stream_iter));
+                }
+                _ => continue,
+            }
+        }
+        StreamContent { text }
+    }
+}
+
+impl StreamContent {
+    pub fn get_text(&self) -> String {
+        self.text
+            .iter()
+            .map(|t| {
+                match t.TJ {
+                    Some(ref v) => return v.join("") + "\n",
+                    None => (),
+                };
+                match t.Tj {
+                    Some(ref s) => return s.clone() + "\n",
+                    None => panic!("Text does not contains TJ or Tj operator"),
+                }
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_text_single() {
-        let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
-        let text = Text::from(raw);
-        assert_eq!(text.TD, Some((70, 50)));
-        assert_eq!(text.Tf, Some(("F1".to_string(), 12)));
-        assert_eq!(text.Tj, Some("Hello, world!".to_string()));
-    }
-
-    #[test]
-    fn test_text_multiple() {
-        let raw = b"BT 12 0 0 -12 72 688 Tm /F3.0 1 Tf [ (eget)
--27 ( ) -30 (dui.) 47 ( ) -104 (Phasellus) -43 ( ) -13 (congue.) 42 ( ) -99
-(Aenean) 54 ( ) -111 (est) -65 ( ) 8 (erat,) 29 ( ) -86 (tincidunt) -54 ( )
--3 (eget,) 31 ( ) -88 (venenatis) 5 ( ) -62 (quis,) 61 ( ) -118 (commodo)
--11 ( ) -46 (at, ) ] TJ ET".as_slice();
-        let text = Text::from(raw);
-        assert_eq!(text.Tm, Some((12, 0, 0, -12, 72, 688)));
-        assert_eq!(text.Tf, Some(("F3.0".to_string(), 1)));
-        assert_eq!(text.TJ, Some(vec!["eget", " ", "dui.", " ", "Phasellus", " ", "congue.", " ", "Aenean", " ", "est", " ", "erat,", " ", "tincidunt", " ", "eget,", " ", "venenatis", " ", "quis,", " ", "commodo", " ", "at, "].iter().map(|s| s.to_string()).collect()));
-    }
 
     #[test]
     fn test_tokens() {
         let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
         let mut stream_iter = Stream::from(raw);
         assert_eq!(stream_iter.next(), Some(StreamToken::BeginText));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(70)));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(50)));
+        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(70.0)));
+        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(50.0)));
         assert_eq!(
             stream_iter.next(),
             Some(StreamToken::Operator(Operator::TD))
@@ -267,7 +291,7 @@ mod tests {
             stream_iter.next(),
             Some(StreamToken::Name("F1".to_string()))
         );
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(12)));
+        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(12.0)));
         assert_eq!(
             stream_iter.next(),
             Some(StreamToken::Operator(Operator::Tf))
@@ -282,5 +306,83 @@ mod tests {
         );
         assert_eq!(stream_iter.next(), Some(StreamToken::EndText));
         assert_eq!(stream_iter.next(), None);
+    }
+
+    #[test]
+    fn test_text_single() {
+        let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
+        let text = Text::from(raw);
+        assert_eq!(text.TD, Some((70.0, 50.0)));
+        assert_eq!(text.Tf, Some(("F1".to_string(), 12.0)));
+        assert_eq!(text.Tj, Some("Hello, world!".to_string()));
+    }
+
+    #[test]
+    fn test_text_multiple() {
+        let raw = b"BT 12 0 0 -12 72 688 Tm /F3.0 1 Tf [ (eget)
+-27 ( ) -30 (dui.) 47 ( ) -104 (Phasellus) -43 ( ) -13 (congue.) 42 ( ) -99
+(Aenean) 54 ( ) -111 (est) -65 ( ) 8 (erat,) 29 ( ) -86 (tincidunt) -54 ( )
+-3 (eget,) 31 ( ) -88 (venenatis) 5 ( ) -62 (quis,) 61 ( ) -118 (commodo)
+-11 ( ) -46 (at, ) ] TJ ET"
+            .as_slice();
+        let text = Text::from(raw);
+        assert_eq!(text.Tm, Some((12.0, 0.0, 0.0, -12.0, 72.0, 688.0)));
+        assert_eq!(text.Tf, Some(("F3.0".to_string(), 1.0)));
+        assert_eq!(
+            text.TJ,
+            Some(
+                vec![
+                    "eget",
+                    " ",
+                    "dui.",
+                    " ",
+                    "Phasellus",
+                    " ",
+                    "congue.",
+                    " ",
+                    "Aenean",
+                    " ",
+                    "est",
+                    " ",
+                    "erat,",
+                    " ",
+                    "tincidunt",
+                    " ",
+                    "eget,",
+                    " ",
+                    "venenatis",
+                    " ",
+                    "quis,",
+                    " ",
+                    "commodo",
+                    " ",
+                    "at, "
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+            )
+        );
+    }
+
+    #[test]
+    fn test_content_stream() {
+        let raw = b"q Q q 0 0 612 792 re W n /Cs1 cs 1 sc 0 0 612 792 re f 0.6000000 i 0 0 612 792
+re f 0.3019608 sc 0 i q 1 0 0 -1 0 792 cm BT 36 0 0 -36 72 106 Tm /F1.0 1
+Tf (Sample PDF) Tj ET Q 0 sc q 1 0 0 -1 0 792 cm BT 18 0 0 -18 72 132 Tm /F2.0
+1 Tf (This is a simple PDF file. Fun fun fun.) Tj ET Q q 1 0 0 -1 0 792 cm
+BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
+( ) -49 (dolor) 12 ( ) -139 (sit) -38 ( ) -89 (amet,) 61 ( ) -188 (consectetuer)
+-5 ( ) -122 (adipiscing) -35 ( ) -91 (elit.) -1 ( ) -125 (Phasellus) -23 ( )
+-103 (facilisis) -37 ( ) -89 (odio) -12 ( ) -114 (sed) -34 ( ) -93 (mi. )
+] TJ ET Q q 1 0 0 -1 0 792 cm BT 12 0 0 -12 72 178 Tm /F3.0 1 Tf [ (Curabitur)
+-18 ( ) -41 (suscipit.) 21 ( ) -82 (Nullam) -94 ( ) 34 (vel) -6 ( ) -53 (nisi.)
+-3 ( ) -57 (Etiam) -73 ( ) 12 (semper) 5 ( ) -65 (ipsum) -47 ( ) -13 (ut)
+-43 ( ) -16 (lectus.) 25 ( ) -86 (Pr) 17 (oin) 68 ( ) -128 (aliquam,) 35 ( )
+-96 (erat) -61 ( eget ) ] TJ ET Q q 1 0 0 -1"
+            .as_slice();
+        let text = StreamContent::from(raw);
+        assert_eq!(text.text.len(), 4);
+        assert_eq!(text.get_text(), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. \nCurabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget \n");
     }
 }
