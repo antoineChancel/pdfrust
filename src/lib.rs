@@ -57,10 +57,3 @@ pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> body::C
 pub fn info(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> info::Info {
     info::Info::new(file_stream, curr_idx, xref)
 }
-
-// pub fn pages<'a>(
-//     file_stream: &'a [u8],
-//     xref_table: &xref::XrefTable,
-// ) -> structures::PageTreeNodeRoot {
-//     structures::PageTreeNodeRoot::new(file_stream, &xref_table)
-// }

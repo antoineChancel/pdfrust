@@ -111,7 +111,7 @@ impl From<&[u8]> for Text {
             Tj: None,
             TJ: None,
         };
-        let mut buf: Vec<StreamToken> =  vec![];
+        let mut buf: Vec<StreamToken> = vec![];
         while let Some(token) = stream_iter.next() {
             match token {
                 StreamToken::BeginText => continue,
@@ -126,7 +126,8 @@ impl From<&[u8]> for Text {
                             match buf[1] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
-                            }));
+                            },
+                        ));
                         buf.clear();
                     }
                     Operator::TD => {
@@ -138,7 +139,8 @@ impl From<&[u8]> for Text {
                             match buf[1] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
-                            }));
+                            },
+                        ));
                         buf.clear();
                     }
                     Operator::Tm => {
@@ -166,7 +168,8 @@ impl From<&[u8]> for Text {
                             match buf[1] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
-                            }));
+                            },
+                        ));
                         buf.clear();
                     }
                     Operator::Tf => {
@@ -174,10 +177,12 @@ impl From<&[u8]> for Text {
                             match &buf[0] {
                                 StreamToken::Name(n) => n.clone(),
                                 _ => panic!("Invalid token"),
-                            }, match buf[1] {
+                            },
+                            match buf[1] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
-                            }));
+                            },
+                        ));
                         buf.clear();
                     }
                     Operator::Tj => {
@@ -188,20 +193,25 @@ impl From<&[u8]> for Text {
                         buf.clear();
                     }
                     Operator::TJ => {
-                        text.TJ = Some(buf.iter().filter(|t| match t {
-                            StreamToken::Text(_) => true,
-                            _ => false,
-                        }).map(|f| match f {
-                            StreamToken::Text(t) => t.clone(),
-                            _ => panic!("Invalid token"),
-                        }).collect());
+                        text.TJ = Some(
+                            buf.iter()
+                                .filter(|t| match t {
+                                    StreamToken::Text(_) => true,
+                                    _ => false,
+                                })
+                                .map(|f| match f {
+                                    StreamToken::Text(t) => t.clone(),
+                                    _ => panic!("Invalid token"),
+                                })
+                                .collect(),
+                        );
                         buf.clear();
                     }
-                }
+                },
                 t => buf.push(t),
             }
         }
-    text
+        text
     }
 }
 
@@ -225,18 +235,27 @@ mod tests {
         assert_eq!(stream_iter.next(), Some(StreamToken::BeginText));
         assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(70)));
         assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(50)));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Operator(Operator::TD)));
+        assert_eq!(
+            stream_iter.next(),
+            Some(StreamToken::Operator(Operator::TD))
+        );
         assert_eq!(
             stream_iter.next(),
             Some(StreamToken::Name("F1".to_string()))
         );
         assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(12)));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Operator(Operator::Tf)));
+        assert_eq!(
+            stream_iter.next(),
+            Some(StreamToken::Operator(Operator::Tf))
+        );
         assert_eq!(
             stream_iter.next(),
             Some(StreamToken::Text("Hello, world!".to_string()))
         );
-        assert_eq!(stream_iter.next(), Some(StreamToken::Operator(Operator::Tj)));
+        assert_eq!(
+            stream_iter.next(),
+            Some(StreamToken::Operator(Operator::Tj))
+        );
         assert_eq!(stream_iter.next(), Some(StreamToken::EndText));
         assert_eq!(stream_iter.next(), None);
     }
