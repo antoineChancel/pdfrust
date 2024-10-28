@@ -105,23 +105,23 @@ impl<'a> Iterator for Stream<'a> {
 }
 
 struct Text {
-    TD: Option<(f32, f32)>,
-    Td: Option<(f32, f32)>,
-    Tm: Option<(f32, f32, f32, f32, f32, f32)>,
-    Tf: Option<(String, f32)>,
-    Tj: Option<String>,
-    TJ: Option<Vec<String>>,
+    t_upper_d: Option<(f32, f32)>, // Move text position and set leading
+    t_d: Option<(f32, f32)>, // Move text position
+    t_m: Option<(f32, f32, f32, f32, f32, f32)>, // Set text matrix and text line matrix
+    t_f: Option<(String, f32)>, // Set text font and size
+    t_j: Option<String>, // Show text
+    t_upper_j: Option<Vec<String>>, // Show text, allowing individual glyph positioning
 }
 
 impl<'a> From<&mut Stream<'a>> for Text {
     fn from(value: &mut Stream<'a>) -> Self {
         let mut text = Text {
-            TD: None,
-            Td: None,
-            Tm: None,
-            Tf: None,
-            Tj: None,
-            TJ: None,
+            t_upper_d: None,
+            t_d: None,
+            t_m: None,
+            t_f: None,
+            t_j: None,
+            t_upper_j: None,
         };
         let mut buf: Vec<StreamToken> = vec![];
         while let Some(token) = value.next() {
@@ -130,7 +130,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                 StreamToken::EndText => break,
                 StreamToken::Operator(op) => match op {
                     Operator::Td => {
-                        text.Td = Some((
+                        text.t_d = Some((
                             match buf[0] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token, buf {buf:?}"),
@@ -143,7 +143,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                         buf.clear();
                     }
                     Operator::TD => {
-                        text.TD = Some((
+                        text.t_upper_d = Some((
                             match buf[0] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
@@ -156,7 +156,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                         buf.clear();
                     }
                     Operator::Tm => {
-                        text.Tm = Some((
+                        text.t_m = Some((
                             match buf[0] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
@@ -185,7 +185,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                         buf.clear();
                     }
                     Operator::Tf => {
-                        text.Tf = Some((
+                        text.t_f = Some((
                             match &buf[0] {
                                 StreamToken::Name(n) => n.clone(),
                                 StreamToken::Other(n) => n.clone(), // may happen
@@ -199,14 +199,14 @@ impl<'a> From<&mut Stream<'a>> for Text {
                         buf.clear();
                     }
                     Operator::Tj => {
-                        text.Tj = Some(match &buf[0] {
+                        text.t_j = Some(match &buf[0] {
                             StreamToken::Text(n) => n.clone(),
                             _ => panic!("Invalid token"),
                         });
                         buf.clear();
                     }
                     Operator::TJ => {
-                        text.TJ = Some(
+                        text.t_upper_j = Some(
                             buf.iter()
                                 .filter(|t| match t {
                                     StreamToken::Text(_) => true,
@@ -259,11 +259,11 @@ impl StreamContent {
         self.text
             .iter()
             .map(|t| {
-                match t.TJ {
+                match t.t_upper_j {
                     Some(ref v) => return v.join("") + "\n",
                     None => (),
                 };
-                match t.Tj {
+                match t.t_j {
                     Some(ref s) => return s.clone() + "\n",
                     None => panic!("Text does not contains TJ or Tj operator"),
                 }
@@ -312,9 +312,9 @@ mod tests {
     fn test_text_single() {
         let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
         let text = Text::from(raw);
-        assert_eq!(text.TD, Some((70.0, 50.0)));
-        assert_eq!(text.Tf, Some(("F1".to_string(), 12.0)));
-        assert_eq!(text.Tj, Some("Hello, world!".to_string()));
+        assert_eq!(text.t_upper_d, Some((70.0, 50.0)));
+        assert_eq!(text.t_f, Some(("F1".to_string(), 12.0)));
+        assert_eq!(text.t_j, Some("Hello, world!".to_string()));
     }
 
     #[test]
@@ -326,10 +326,10 @@ mod tests {
 -11 ( ) -46 (at, ) ] TJ ET"
             .as_slice();
         let text = Text::from(raw);
-        assert_eq!(text.Tm, Some((12.0, 0.0, 0.0, -12.0, 72.0, 688.0)));
-        assert_eq!(text.Tf, Some(("F3.0".to_string(), 1.0)));
+        assert_eq!(text.t_m, Some((12.0, 0.0, 0.0, -12.0, 72.0, 688.0)));
+        assert_eq!(text.t_f, Some(("F3.0".to_string(), 1.0)));
         assert_eq!(
-            text.TJ,
+            text.t_upper_j,
             Some(
                 vec![
                     "eget",
