@@ -1,7 +1,10 @@
 use std::collections::HashMap;
 
 use crate::{
-    filters, object::{Dictionary, IndirectObject, Name, Numeric, Object}, text, xref::XrefTable
+    filters,
+    object::{Dictionary, IndirectObject, Name, Numeric, Object},
+    text,
+    xref::XrefTable,
 };
 
 type Rectangle = [Numeric; 4];

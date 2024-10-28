@@ -27,7 +27,7 @@ enum StreamToken {
     Name(String),
     Numeric(f32),
     Text(String),
-    Other(String)
+    Other(String),
 }
 
 impl<'a> From<&'a [u8]> for Stream<'a> {
@@ -106,10 +106,10 @@ impl<'a> Iterator for Stream<'a> {
 
 struct Text {
     t_upper_d: Option<(f32, f32)>, // Move text position and set leading
-    t_d: Option<(f32, f32)>, // Move text position
+    t_d: Option<(f32, f32)>,       // Move text position
     t_m: Option<(f32, f32, f32, f32, f32, f32)>, // Set text matrix and text line matrix
-    t_f: Option<(String, f32)>, // Set text font and size
-    t_j: Option<String>, // Show text
+    t_f: Option<(String, f32)>,    // Set text font and size
+    t_j: Option<String>,           // Show text
     t_upper_j: Option<Vec<String>>, // Show text, allowing individual glyph positioning
 }
 
