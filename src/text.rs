@@ -21,9 +21,11 @@ enum Operator {
 enum StreamToken {
     BeginText,
     EndText,
+    BeginArray,
+    EndArray,
     Operator(Operator),
     Name(String),
-    Numeric(u32),
+    Numeric(i32),
     Text(String),
 }
 
@@ -41,26 +43,35 @@ impl<'a> Iterator for Stream<'a> {
         while let Some(c) = self.0.next() {
             match CharacterSet::from(c) {
                 CharacterSet::WhiteSpace(_) => continue,
-                CharacterSet::Delimiter(Delimiter::String) => {
-                    while let Some(c) = self.0.next() {
-                        match CharacterSet::from(c) {
-                            CharacterSet::Delimiter(Delimiter::String) => break,
-                            _ => buf.push(*c as char),
+                CharacterSet::Delimiter(d) => match d {
+                    Delimiter::String => {
+                        while let Some(c) = self.0.next() {
+                            match CharacterSet::from(c) {
+                                CharacterSet::Delimiter(Delimiter::String) => break,
+                                _ => buf.push(*c as char),
+                            }
+                        }
+                        return Some(StreamToken::Text(buf));
+                    }
+                    Delimiter::Name => {
+                        while let Some(c) = self.0.next() {
+                            match CharacterSet::from(c) {
+                                CharacterSet::WhiteSpace(_) => break,
+                                CharacterSet::Delimiter(_) => panic!("Invalid character"),
+                                CharacterSet::Regular(c) => buf.push(c as char),
+                            }
+                        }
+                        return Some(StreamToken::Name(buf));
+                    }
+                    Delimiter::Array => {
+                        match c {
+                            b'[' => return Some(StreamToken::BeginArray),
+                            b']' => return Some(StreamToken::EndArray),
+                            a => panic!("Invalid character {a:?}"),
                         }
                     }
-                    return Some(StreamToken::Text(buf));
+                    _ => panic!("Invalid character"),
                 }
-                CharacterSet::Delimiter(Delimiter::Name) => {
-                    while let Some(c) = self.0.next() {
-                        match CharacterSet::from(c) {
-                            CharacterSet::WhiteSpace(_) => break,
-                            CharacterSet::Delimiter(_) => panic!("Invalid character"),
-                            CharacterSet::Regular(c) => buf.push(c as char),
-                        }
-                    }
-                    return Some(StreamToken::Name(buf));
-                }
-                CharacterSet::Delimiter(c) => panic!("Character {c:?} is not covered"),
                 CharacterSet::Regular(c) => {
                     buf.push(c as char);
                     while let Some(c) = self.0.next() {
@@ -79,7 +90,7 @@ impl<'a> Iterator for Stream<'a> {
                         "Tf" => Some(StreamToken::Operator(Operator::Tf)),
                         "Tm" => Some(StreamToken::Operator(Operator::Tm)),
                         "TJ" => Some(StreamToken::Operator(Operator::TJ)),
-                        _ => match buf.parse::<u32>() {
+                        _ => match buf.parse::<i32>() {
                             Ok(n) => Some(StreamToken::Numeric(n)),
                             Err(_) => None,
                         },
@@ -92,10 +103,10 @@ impl<'a> Iterator for Stream<'a> {
 }
 
 struct Text {
-    TD: Option<(u32, u32)>,
-    Td: Option<(u32, u32)>,
-    Tm: Option<(u32, u32, u32, u32, u32, u32)>,
-    Tf: Option<(String, u32)>,
+    TD: Option<(i32, i32)>,
+    Td: Option<(i32, i32)>,
+    Tm: Option<(i32, i32, i32, i32, i32, i32)>,
+    Tf: Option<(String, i32)>,
     Tj: Option<String>,
     TJ: Option<Vec<String>>,
 }
@@ -153,19 +164,19 @@ impl From<&[u8]> for Text {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
                             },
-                            match buf[0] {
+                            match buf[2] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
                             },
-                            match buf[1] {
+                            match buf[3] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
                             },
-                            match buf[0] {
+                            match buf[4] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
                             },
-                            match buf[1] {
+                            match buf[5] {
                                 StreamToken::Numeric(n) => n,
                                 _ => panic!("Invalid token"),
                             },
@@ -220,12 +231,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_text() {
+    fn test_text_single() {
         let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
         let text = Text::from(raw);
         assert_eq!(text.TD, Some((70, 50)));
         assert_eq!(text.Tf, Some(("F1".to_string(), 12)));
         assert_eq!(text.Tj, Some("Hello, world!".to_string()));
+    }
+
+    #[test]
+    fn test_text_multiple() {
+        let raw = b"BT 12 0 0 -12 72 688 Tm /F3.0 1 Tf [ (eget)
+-27 ( ) -30 (dui.) 47 ( ) -104 (Phasellus) -43 ( ) -13 (congue.) 42 ( ) -99
+(Aenean) 54 ( ) -111 (est) -65 ( ) 8 (erat,) 29 ( ) -86 (tincidunt) -54 ( )
+-3 (eget,) 31 ( ) -88 (venenatis) 5 ( ) -62 (quis,) 61 ( ) -118 (commodo)
+-11 ( ) -46 (at, ) ] TJ ET".as_slice();
+        let text = Text::from(raw);
+        assert_eq!(text.Tm, Some((12, 0, 0, -12, 72, 688)));
+        assert_eq!(text.Tf, Some(("F3.0".to_string(), 1)));
+        assert_eq!(text.TJ, Some(vec!["eget", " ", "dui.", " ", "Phasellus", " ", "congue.", " ", "Aenean", " ", "est", " ", "erat,", " ", "tincidunt", " ", "eget,", " ", "venenatis", " ", "quis,", " ", "commodo", " ", "at, "].iter().map(|s| s.to_string()).collect()));
     }
 
     #[test]
