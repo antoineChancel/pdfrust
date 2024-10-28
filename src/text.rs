@@ -76,10 +76,10 @@ impl<'a> Iterator for Stream<'a> {
                 },
                 CharacterSet::Regular(c) => {
                     buf.push(c as char);
-                    while let Some(c) = self.0.next() {
-                        match CharacterSet::from(c) {
+                    while let Some(c) = self.0.peek() {
+                        match CharacterSet::from(*c) {
                             CharacterSet::WhiteSpace(_) => break,
-                            CharacterSet::Regular(c) => buf.push(c as char),
+                            CharacterSet::Regular(c) => {self.0.next(); buf.push(c as char);},
                             CharacterSet::Delimiter(_) => break,
                         }
                     }
@@ -384,5 +384,45 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
         let text = StreamContent::from(raw);
         assert_eq!(text.text.len(), 4);
         assert_eq!(text.get_text(), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. \nCurabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget \n");
+    }
+
+    #[test]
+    fn test_tokenizer_complex() {
+        let raw = b"BT\n/F33 8.9664 Tf 54 713.7733 Td[(v0)-525(:=)-525(ld)-525(state[748])-2625(//)-525(load)-525(primes)-525(from)-525(the)-525(trace)-525(activation)-525(record)]TJ".as_slice();
+        let mut text_stream = Stream::from(raw);
+        assert_eq!(text_stream.next(), Some(StreamToken::BeginText));
+        assert_eq!(text_stream.next(), Some(StreamToken::Name("F33".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(8.9664)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::Tf)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(54.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(713.7733)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::Td)));
+        assert_eq!(text_stream.next(), Some(StreamToken::BeginArray));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("v0".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text(":=".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("ld".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("state[748]".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-2625.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("//".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("load".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("primes".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("from".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("the".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("trace".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("activation".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(StreamToken::Text("record".to_string())));
+        assert_eq!(text_stream.next(), Some(StreamToken::EndArray));
+        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::TJ)));
+
     }
 }
