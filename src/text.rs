@@ -78,6 +78,7 @@ impl<'a> Iterator for Stream<'a> {
                         "Td" => Some(StreamToken::Operator(Operator::Td)),
                         "Tf" => Some(StreamToken::Operator(Operator::Tf)),
                         "Tm" => Some(StreamToken::Operator(Operator::Tm)),
+                        "TJ" => Some(StreamToken::Operator(Operator::TJ)),
                         _ => match buf.parse::<u32>() {
                             Ok(n) => Some(StreamToken::Numeric(n)),
                             Err(_) => None,
