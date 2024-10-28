@@ -15,5 +15,3 @@ pub fn flate_decode(bytes: &[u8]) -> String {
     // sample.pdf contains non utf-8 characters in decompressed streams
     String::from_utf8_lossy(buf).to_string()
 }
-
-
