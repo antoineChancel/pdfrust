@@ -1,5 +1,5 @@
 use super::object;
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 type Offset = usize;
 
@@ -27,9 +27,15 @@ impl XrefTable {
                     // add a new line at the beginning of the pattern to avoid matching 11 0 obj with 1 0 obj
                     pattern.insert(0, '\n' as u8);
                     // look for object header in byte stream
-                    Some(bytes.windows(pattern.len()).position(|w: &[u8]| w == pattern).unwrap()+1)
+                    Some(
+                        bytes
+                            .windows(pattern.len())
+                            .position(|w: &[u8]| w == pattern)
+                            .unwrap()
+                            + 1,
+                    )
                 }
-            },
+            }
             None => None,
         }
     }
@@ -102,7 +108,9 @@ fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
     for object_idx in start..start + size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
-                table.0.insert((object_idx as i32, o.generation as i32), o.offset);
+                table
+                    .0
+                    .insert((object_idx as i32, o.generation as i32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }
@@ -118,7 +126,10 @@ fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
     };
     match std::str::from_utf8(&stream[startxref..]) {
         Ok(s) => s,
-        Err(_) => panic!("Unable to read xref slice, {:?}", std::str::from_utf8(&stream[startxref..startxref + 800])),
+        Err(_) => panic!(
+            "Unable to read xref slice, {:?}",
+            std::str::from_utf8(&stream[startxref..startxref + 800])
+        ),
     }
 }
 

@@ -225,10 +225,13 @@ mod tests {
                     Some(&Object::Array(vec![
                         Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23")),
                         Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23"))
-                    ])));
+                    ]))
+                );
                 assert_eq!(
                     d.get(&String::from("DocChecksum")),
-                    Some(&Object::Name(String::from("700D49F24CC4E7F9CC731421E1DAB422")))
+                    Some(&Object::Name(String::from(
+                        "700D49F24CC4E7F9CC731421E1DAB422"
+                    )))
                 );
             }
             Ok(_) => todo!(),
@@ -276,7 +279,10 @@ mod tests {
                         Object::Numeric(Number::Integer(200))
                     ]))
                 );
-                assert_eq!(d.get(&String::from("Count")), Some(&Object::Numeric(Number::Integer(1))));
+                assert_eq!(
+                    d.get(&String::from("Count")),
+                    Some(&Object::Numeric(Number::Integer(1)))
+                );
                 assert_eq!(
                     d.get(&String::from("Kids")),
                     Some(&Object::Array(vec![Object::Ref((3, 0), xref, bytes)]))
@@ -294,7 +300,10 @@ mod tests {
         let mut t = Tokenizer::new(bytes, 0, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Stream(d, s)) => {
-                assert_eq!(d.get(&String::from("Length")), Some(&Object::Numeric(Number::Integer(10))));
+                assert_eq!(
+                    d.get(&String::from("Length")),
+                    Some(&Object::Numeric(Number::Integer(10)))
+                );
                 assert_eq!(s, b"1234567890");
             }
             Ok(_) => todo!(),

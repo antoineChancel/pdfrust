@@ -275,9 +275,7 @@ impl StreamContent {
                 }
             })
             .collect()
-    }
-}
-
+    
 #[cfg(test)]
 mod tests {
     use super::*;
