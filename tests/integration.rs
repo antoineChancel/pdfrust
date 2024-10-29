@@ -30,3 +30,11 @@ fn test_libreoffice() {
     let trailer = pdfrust::trailer(&file, &xref);
     trailer.extract();
 }
+
+#[test]
+fn test_index() {
+    let file = std::fs::read("data/index.pdf").unwrap();
+    let xref = pdfrust::xref::xref_table(&file);
+    let trailer = pdfrust::trailer(&file, &xref);
+    trailer.extract();
+}
