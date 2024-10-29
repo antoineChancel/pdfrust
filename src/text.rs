@@ -108,6 +108,7 @@ impl<'a> Iterator for Stream<'a> {
     }
 }
 
+#[derive(Debug, PartialEq)]
 struct Text {
     t_upper_d: Option<(f32, f32)>, // Move text position and set leading
     t_d: Option<(f32, f32)>,       // Move text position
@@ -269,7 +270,8 @@ impl StreamContent {
                 };
                 match t.t_j {
                     Some(ref s) => return s.clone() + "\n",
-                    None => panic!("Text does not contains TJ or Tj operator"),
+                    // Text does not contains TJ or Tj operator
+                    None => return "".to_string(),
                 }
             })
             .collect()
