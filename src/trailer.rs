@@ -1,7 +1,7 @@
 use crate::{
     body::Catalog,
     info::Info,
-    object::{Array, Dictionary, IndirectObject, Numeric, Object},
+    object::{Array, Dictionary, IndirectObject, Number, Object},
     xref::XrefTable,
 };
 
@@ -9,9 +9,9 @@ use crate::{
 #[derive(Debug, PartialEq)]
 pub struct Trailer<'a> {
     // Total number of entries in the file’s cross-reference table
-    size: Numeric,
+    size: Number,
     // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
-    prev: Option<Numeric>,
+    prev: Option<Number>,
     // Catalogue dictionnary or a reference to the root object of the page tree
     pub root: Option<Catalog>,
     // Encryption dictionnary
@@ -42,18 +42,18 @@ impl<'a> Trailer<'a> {
 impl<'a> From<Dictionary<'a>> for Trailer<'a> {
     fn from(value: Dictionary<'a>) -> Self {
         Trailer {
-            size: match value.get("Size").unwrap() {
-                Object::Numeric(n) => *n,
+            size: match value.get("Size") {
+                Some(Object::Numeric(n)) => n.clone(),
                 _ => panic!("Size should be a numeric"),
             },
             prev: match value.get("Prev") {
-                Some(Object::Numeric(n)) => Some(*n),
+                Some(Object::Numeric(n)) => Some(n.clone()),
                 None => None,
                 _ => panic!("Prev should be a numeric"),
             },
-            root: match value.get("Root").unwrap() {
-                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Some(Catalog::new(&bytes, *address, xref)),
+            root: match value.get("Root") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Some(Catalog::new(&bytes, address, xref)),
                     None => None,
                 },
                 _ => panic!("Root should be a Catalog object"),
@@ -64,8 +64,8 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Encrypt should be an indirect object"),
             },
             info: match value.get("Info") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Some(Info::new(&bytes, *address, xref)),
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Some(Info::new(&bytes, address, xref)),
                     None => None,
                 },
                 None => None,
@@ -92,7 +92,7 @@ mod test {
         assert_eq!(
             Trailer::new(bytes, 0, &xref),
             Trailer {
-                size: 6,
+                size: Number::Integer(6),
                 root: None,
                 info: None,
                 prev: None,
@@ -112,7 +112,7 @@ mod test {
         assert_eq!(
             Trailer::new(bytes, 0, &xref),
             Trailer {
-                size: 26,
+                size: Number::Integer(26),
                 root: None,
                 info: None,
                 prev: None,

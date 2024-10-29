@@ -1,8 +1,43 @@
 use super::object;
-use std::collections::HashMap;
+use std::{collections::HashMap};
 
 type Offset = usize;
-pub type XrefTable = HashMap<object::IndirectObject, Offset>;
+
+#[derive(Debug, PartialEq)]
+pub struct XrefTable(HashMap<object::IndirectObject, Offset>);
+
+impl XrefTable {
+    pub fn new() -> Self {
+        XrefTable(HashMap::new())
+    }
+
+    pub fn get(&self, key: &object::IndirectObject) -> Option<&Offset> {
+        self.0.get(key)
+    }
+
+    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<Offset> {
+        match self.get(key) {
+            Some(offset) => {
+                let mut pattern = format!("{} {} obj", key.0, key.1).as_bytes().to_owned();
+                // xref address is correct
+                if bytes[*offset..].starts_with(&pattern) {
+                    Some(*offset)
+                // xref table adress is broken
+                } else {
+                    // add a new line at the beginning of the pattern to avoid matching 11 0 obj with 1 0 obj
+                    pattern.insert(0, '\n' as u8);
+                    // look for object header in byte stream
+                    Some(bytes.windows(pattern.len()).position(|w: &[u8]| w == pattern).unwrap()+1)
+                }
+            },
+            None => None,
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+}
 
 #[derive(Debug, PartialEq)]
 pub struct XrefEntry {
@@ -59,20 +94,19 @@ fn xref_table_subsection_entry(line: &str) -> Option<XrefEntry> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines) -> HashMap<(u32, u32), usize> {
-    let mut table = HashMap::new();
+fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
+    let mut table = XrefTable(HashMap::new());
 
     let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
 
     for object_idx in start..start + size {
         match xref_table_subsection_entry(line.next().unwrap()) {
             Some(o) => {
-                table.insert((object_idx as u32, o.generation as u32), o.offset);
+                table.0.insert((object_idx as i32, o.generation as i32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }
     }
-
     table
 }
 

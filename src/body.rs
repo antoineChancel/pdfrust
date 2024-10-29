@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use crate::{
     filters,
-    object::{Dictionary, IndirectObject, Name, Numeric, Object},
+    object::{Dictionary, IndirectObject, Name, Number, Object},
     text,
     xref::XrefTable,
 };
 
-type Rectangle = [Numeric; 4];
+type Rectangle = [Number; 4];
 #[derive(Debug, PartialEq)]
 enum Filter {
     FlateDecode,
@@ -24,7 +24,7 @@ impl From<Name> for Filter {
 
 #[derive(Debug, PartialEq)]
 struct StreamDictionary {
-    length: Numeric,
+    length: Number,
     filter: Option<Filter>,
 }
 
@@ -32,9 +32,9 @@ impl From<Dictionary<'_>> for StreamDictionary {
     fn from(value: Dictionary) -> Self {
         StreamDictionary {
             length: match value.get("Length").unwrap() {
-                Object::Numeric(n) => *n,
-                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => match Object::new(&bytes, *address, xref) {
+                Object::Numeric(n) => n.clone(),
+                Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => match Object::new(&bytes, address, xref) {
                         Object::Numeric(n) => n,
                         _ => panic!("Length should be a numeric"),
                     },
@@ -75,13 +75,14 @@ pub enum PageTreeKids {
 impl PageTreeKids {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
         match Object::new(bytes, curr_idx, xref) {
-            Object::Dictionary(dict) => match dict.get("Type").unwrap() {
-                Object::Name(name) => match name.as_str() {
+            Object::Dictionary(dict) => match dict.get("Type") {
+                Some(Object::Name(name)) => match name.as_str() {
                     "Pages" => PageTreeKids::PageTreeNode(PageTreeNode::new(bytes, curr_idx, xref)),
                     "Page" => PageTreeKids::Page(Page::new(bytes, curr_idx, xref)),
                     _ => panic!("Unexpected dictionnary type"),
                 },
-                _ => panic!("Type should be a name"),
+                Some(o) => panic!("Type should be a name, found object {o:?}"),
+                None => panic!("Type was not found in dictionnary, {dict:?}"),
             },
             _ => panic!("PageTreeKids should be a dictionary"),
         }
@@ -130,9 +131,16 @@ impl From<Dictionary<'_>> for Resources {
     fn from(value: Dictionary) -> Self {
         Resources {
             font: match value.get("Font") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Some(Font::from(match Object::new(&bytes, address, xref) {
+                        Object::Dictionary(t) => t,
+                        _ => panic!("Font should be a dictionary"),
+                    })),
+                    None => None,
+                },
                 Some(Object::Dictionary(t)) => Some(Font::from(t.clone())),
                 None => None,
-                _ => panic!("Font should be an indirect object"),
+                f => panic!("Font should be an indirect object or a dictionary; found {f:?}"),
             },
         }
     }
@@ -141,9 +149,9 @@ impl From<Dictionary<'_>> for Resources {
 #[derive(Debug, PartialEq)]
 pub struct PageTreeNodeRoot {
     kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Numeric,          // Number of leaf nodes
+    count: Number,           // Number of leaf nodes
     // Inheritables (cf page 149)
-    rotate: Option<Numeric>, // Number of degrees by which the page should be rotated clockwise when displayeds
+    rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
     crop_box: Option<Rectangle>, // Rectangle
     media_box: Option<Rectangle>, // Rectangle
     resources: Option<Resources>, // Resource dictionary
@@ -173,8 +181,8 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
                 Object::Array(arr) => arr
                     .iter()
                     .map(|kid| match kid {
-                        Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                            Some(address) => PageTreeKids::new(&bytes, *address, xref),
+                        Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                            Some(address) => PageTreeKids::new(&bytes, address, xref),
                             None => panic!("Kid not found in xref table"),
                         },
                         _ => panic!("Kid should be an indirect object"),
@@ -183,30 +191,30 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
                 _ => panic!("Kids should be an array"),
             },
             count: match value.get("Count").unwrap() {
-                Object::Numeric(n) => *n,
+                Object::Numeric(n) => n.clone(),
                 _ => panic!("Count should be a numeric"),
             },
             rotate: match value.get("Rotate") {
-                Some(Object::Numeric(n)) => Some(*n),
+                Some(Object::Numeric(n)) => Some(n.clone()),
                 None => None,
                 _ => panic!("Rotate should be a numeric"),
             },
             crop_box: match value.get("CropBox") {
                 Some(Object::Array(arr)) => Some([
-                    match arr[0] {
-                        Object::Numeric(n) => n,
+                    match &arr[0] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("CropBox should be an array of numeric"),
                     },
-                    match arr[1] {
-                        Object::Numeric(n) => n,
+                    match &arr[1] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("CropBox should be an array of numeric"),
                     },
-                    match arr[2] {
-                        Object::Numeric(n) => n,
+                    match &arr[2] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("CropBox should be an array of numeric"),
                     },
-                    match arr[3] {
-                        Object::Numeric(n) => n,
+                    match &arr[3] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("CropBox should be an array of numeric"),
                     },
                 ]),
@@ -215,20 +223,20 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
             },
             media_box: match value.get("MediaBox") {
                 Some(Object::Array(arr)) => Some([
-                    match arr[0] {
-                        Object::Numeric(n) => n,
+                    match &arr[0] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("MediaBox should be an array of numeric"),
                     },
-                    match arr[1] {
-                        Object::Numeric(n) => n,
+                    match &arr[1] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("MediaBox should be an array of numeric"),
                     },
-                    match arr[2] {
-                        Object::Numeric(n) => n,
+                    match &arr[2] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("MediaBox should be an array of numeric"),
                     },
-                    match arr[3] {
-                        Object::Numeric(n) => n,
+                    match &arr[3] {
+                        Object::Numeric(n) => n.clone(),
                         _ => panic!("MediaBox should be an array of numeric"),
                     },
                 ]),
@@ -236,8 +244,8 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
                 _ => panic!("MediaBox should be an array"),
             },
             resources: match value.get("Resources") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Some(Resources::new(&bytes, *address, xref)),
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get_and_fix(&(*obj, *gen), &bytes) {
+                    Some(address) => Some(Resources::new(&bytes, address, xref)),
                     None => panic!("Kid not found in xref table"),
                 },
                 None => None,
@@ -251,7 +259,7 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
 pub struct PageTreeNode {
     // parent: PageTreeParent<'a>, // The page tree node's parent
     kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Numeric,          // Number of leaf nodes
+    count: Number,           // Number of leaf nodes
 }
 
 impl PageTreeNode {
@@ -278,8 +286,8 @@ impl From<Dictionary<'_>> for PageTreeNode {
                 Object::Array(arr) => arr
                     .iter()
                     .map(|kid| match kid {
-                        Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                            Some(address) => PageTreeKids::new(&bytes, *address, xref),
+                        Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                            Some(address) => PageTreeKids::new(&bytes, address, xref),
                             None => panic!("Kid not found in xref table"),
                         },
                         _ => panic!("Kid should be an indirect object"),
@@ -288,7 +296,7 @@ impl From<Dictionary<'_>> for PageTreeNode {
                 _ => panic!("Kids should be an array"),
             },
             count: match value.get("Count").unwrap() {
-                Object::Numeric(n) => *n,
+                Object::Numeric(n) => n.clone(),
                 _ => panic!("Count should be a numeric"),
             },
         }
@@ -338,8 +346,8 @@ impl From<Dictionary<'_>> for Page {
             },
             resources: match value.get("Resources").unwrap() {
                 Object::Dictionary(t) => Resources::from(t.clone()),
-                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Resources::new(&bytes, *address, xref),
+                Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Resources::new(&bytes, address, xref),
                     None => panic!("Resource dictionnary address not found in xref keys"),
                 },
                 t => panic!("Resources should be an dictionary object {t:?}"),
@@ -347,19 +355,19 @@ impl From<Dictionary<'_>> for Page {
             media_box: match value.get("MediaBox") {
                 Some(Object::Array(arr)) => Some([
                     match &arr[0] {
-                        Object::Numeric(n) => *n,
+                        Object::Numeric(n) => n.clone(),
                         o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
                     match &arr[1] {
-                        Object::Numeric(n) => *n,
+                        Object::Numeric(n) => n.clone(),
                         o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
                     match &arr[2] {
-                        Object::Numeric(n) => *n,
+                        Object::Numeric(n) => n.clone(),
                         o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
                     match &arr[3] {
-                        Object::Numeric(n) => *n,
+                        Object::Numeric(n) => n.clone(),
                         o => panic!("MediaBox should be an array of numeric, found {o:?}"),
                     },
                 ]),
@@ -367,8 +375,8 @@ impl From<Dictionary<'_>> for Page {
                 None => None,
             },
             contents: match value.get("Contents") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Some(Stream::new(&bytes, *address, xref)),
+                Some(Object::Ref((obj, gen), xref, bytes)) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Some(Stream::new(&bytes, address, xref)),
                     None => panic!("Resource dictionnary address not found in xref keys"),
                 },
                 None => None,
@@ -407,8 +415,8 @@ impl From<Dictionary<'_>> for Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen), xref, bytes) => match xref.get(&(*obj, *gen)) {
-                    Some(address) => Some(PageTreeNodeRoot::new(&bytes, *address, xref)),
+                Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                    Some(address) => Some(PageTreeNodeRoot::new(&bytes, address, xref)),
                     None => None,
                 },
                 _ => panic!("Pages should be an indirect object"),

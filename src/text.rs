@@ -70,6 +70,7 @@ impl<'a> Iterator for Stream<'a> {
                         b'<' => return Some(StreamToken::Other("<".to_string())),
                         b'{' => return Some(StreamToken::Other("{".to_string())),
                         b'}' => return Some(StreamToken::Other("}".to_string())),
+                        b'>' => return Some(StreamToken::Other(">".to_string())),
                         c => panic!("Invalid character {}", *c as char),
                     },
                     _ => panic!("Invalid character"),
@@ -79,7 +80,10 @@ impl<'a> Iterator for Stream<'a> {
                     while let Some(c) = self.0.peek() {
                         match CharacterSet::from(*c) {
                             CharacterSet::WhiteSpace(_) => break,
-                            CharacterSet::Regular(c) => {self.0.next(); buf.push(c as char);},
+                            CharacterSet::Regular(c) => {
+                                self.0.next();
+                                buf.push(c as char);
+                            }
                             CharacterSet::Delimiter(_) => break,
                         }
                     }
@@ -391,38 +395,85 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
         let raw = b"BT\n/F33 8.9664 Tf 54 713.7733 Td[(v0)-525(:=)-525(ld)-525(state[748])-2625(//)-525(load)-525(primes)-525(from)-525(the)-525(trace)-525(activation)-525(record)]TJ".as_slice();
         let mut text_stream = Stream::from(raw);
         assert_eq!(text_stream.next(), Some(StreamToken::BeginText));
-        assert_eq!(text_stream.next(), Some(StreamToken::Name("F33".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Name("F33".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(8.9664)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::Tf)));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Operator(Operator::Tf))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(54.0)));
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(713.7733)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::Td)));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Operator(Operator::Td))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::BeginArray));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("v0".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("v0".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text(":=".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text(":=".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("ld".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("ld".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("state[748]".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("state[748]".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-2625.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("//".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("//".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("load".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("load".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("primes".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("primes".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("from".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("from".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("the".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("the".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("trace".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("trace".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("activation".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("activation".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Text("record".to_string())));
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Text("record".to_string()))
+        );
         assert_eq!(text_stream.next(), Some(StreamToken::EndArray));
-        assert_eq!(text_stream.next(), Some(StreamToken::Operator(Operator::TJ)));
-
+        assert_eq!(
+            text_stream.next(),
+            Some(StreamToken::Operator(Operator::TJ))
+        );
     }
 }

@@ -25,15 +25,21 @@ impl WhiteSpace {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Number {
+    Integer(i32),
+    Real(f32),
+}
+
 #[derive(Debug, PartialEq)]
 pub enum Token<'a> {
-    Numeric(u32),
+    Numeric(Number),
     String(&'a [u8]),
     LitteralString(&'a [u8]),
     HexString(&'a [u8]),
     Name(&'a str),
     Comment(&'a [u8]),
-    IndirectRef((u32, u32), &'a XrefTable, &'a [u8]),
+    IndirectRef((i32, i32), &'a XrefTable, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -247,7 +253,8 @@ impl<'a> Iterator for Tokenizer<'a> {
                         }
                         match CharacterSet::from(&self.bytes[self.curr_idx]) {
                             CharacterSet::Regular(
-                                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9',
+                                b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9'
+                                | b'.',
                             ) => (),
                             CharacterSet::Regular(_) => is_numeric = false,
                             _ => break,
@@ -255,36 +262,39 @@ impl<'a> Iterator for Tokenizer<'a> {
                         self.curr_idx += 1;
                     }
                     if is_numeric {
-                        let mut numeric = 0;
-                        for c in &self.bytes[begin..self.curr_idx] {
-                            numeric = numeric * 10 + char::from(*c).to_digit(10).unwrap()
+                        let numeric =
+                            std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap();
+                        match numeric.parse::<i32>() {
+                            Ok(n) => token = Some(Token::Numeric(Number::Integer(n))),
+                            Err(_) => match numeric.parse::<f32>() {
+                                Ok(n) => token = Some(Token::Numeric(Number::Real(n))),
+                                Err(_) => panic!("Unable to parse numeric"),
+                            },
                         }
-                        token = Some(Token::Numeric(numeric));
-
                         // indirect reference (peek next 2 tokens)
-                        match self.peek(1) {
-                            Some(Token::Numeric(_)) => match self.peek(2) {
-                                Some(Token::String(b"R")) => {
-                                    let obj = numeric;
-                                    let gen = match self.next().unwrap() {
-                                        Token::Numeric(gen) => gen,
-                                        _ => panic!("Unable to read generation number"),
-                                    };
-                                    self.next(); // consume 'R'
-                                    token = Some(Token::IndirectRef(
-                                        (obj, gen),
-                                        self.xref,
-                                        &self.bytes,
-                                    ));
-                                }
-                                Some(Token::String(b"obj")) => {
-                                    self.next(); // consume 'gen'
-                                    self.next(); // consume 'R'
-                                    token = Some(Token::ObjBegin);
-                                }
+                        match token {
+                            Some(Token::Numeric(Number::Integer(obj))) => match self.peek(1) {
+                                Some(Token::Numeric(Number::Integer(gen))) => match self.peek(2) {
+                                    Some(Token::String(b"R")) => {
+                                        self.next(); // consume 'gen'
+                                        self.next(); // consume 'R'
+                                        token = Some(Token::IndirectRef(
+                                            (obj, gen),
+                                            self.xref,
+                                            &self.bytes,
+                                        ));
+                                    }
+                                    Some(Token::String(b"obj")) => {
+                                        self.next(); // consume 'gen'
+                                        self.next(); // consume 'R'
+                                        token = Some(Token::ObjBegin);
+                                    }
+                                    _ => break,
+                                },
                                 _ => break,
                             },
-                            _ => break,
+                            Some(Token::Numeric(Number::Real(_))) => (),
+                            t => panic!("Unable to parse {t:?} to numeric"),
                         }
                     } else if &self.bytes[begin..self.curr_idx] == b"stream" {
                         token = Some(Token::StreamBegin);
@@ -347,6 +357,26 @@ mod tests {
     }
 
     #[test]
+    fn test_pdfbytes_numeric_float() {
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"12.34", 0, &binding);
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Real(12.34))));
+    }
+
+    #[test]
+    fn test_pdfbytes_mediabox_float() {
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"/MediaBox [ 0 0 200.00 200.00 ] ", 0, &binding);
+        assert_eq!(pdf.next(), Some(Token::Name("MediaBox")));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Real(200.0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Real(200.0))));
+        assert_eq!(pdf.next(), Some(Token::ArrayEnd));
+    }
+
+    #[test]
     fn test_pdfbytes_iterator_full() {
         let binding: XrefTable = XrefTable::new();
         let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", 0, &binding);
@@ -356,13 +386,13 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Name("Pages")));
         assert_eq!(pdf.next(), Some(Token::Name("MediaBox")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
-        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(0)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(200)));
-        assert_eq!(pdf.next(), Some(Token::Numeric(200)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::Name("Count")));
-        assert_eq!(pdf.next(), Some(Token::Numeric(1)));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
         assert_eq!(pdf.next(), Some(Token::Name("Kids")));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(

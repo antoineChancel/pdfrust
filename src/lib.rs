@@ -15,6 +15,7 @@ pub mod xref;
 pub enum PdfVersion {
     V1_3,
     V1_4,
+    V1_5,
     V1_6,
     V1_7,
 }
@@ -24,6 +25,7 @@ impl Display for PdfVersion {
         match self {
             PdfVersion::V1_3 => write!(f, "1.3"),
             PdfVersion::V1_4 => write!(f, "1.4"),
+            PdfVersion::V1_5 => write!(f, "1.5"),
             PdfVersion::V1_6 => write!(f, "1.6"),
             PdfVersion::V1_7 => write!(f, "1.7"),
         }
@@ -34,6 +36,7 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     match &s[s.len() - 3..] {
         b"1.7" => PdfVersion::V1_7,
         b"1.6" => PdfVersion::V1_6,
+        b"1.5" => PdfVersion::V1_5,
         b"1.4" => PdfVersion::V1_4,
         b"1.3" => PdfVersion::V1_3,
         _ => panic!("Pdf version not supported"),

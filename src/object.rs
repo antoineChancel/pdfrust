@@ -1,12 +1,11 @@
 // PDF basic objects
-use crate::tokenizer::{Token, Tokenizer};
+pub use crate::tokenizer::{Number, Token, Tokenizer};
 use std::collections::HashMap;
 
 use crate::xref::XrefTable;
 
 pub type Name = String;
-pub type IndirectObject = (u32, u32);
-pub type Numeric = u32;
+pub type IndirectObject = (i32, i32);
 pub type Array<'a> = Vec<Object<'a>>;
 pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 
@@ -17,7 +16,7 @@ pub enum Object<'a> {
     Array(Array<'a>),
     Name(Name),
     String(String),
-    Numeric(Numeric),
+    Numeric(Number),
     Ref(IndirectObject, &'a XrefTable, &'a [u8]),
 }
 
@@ -97,15 +96,18 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Object<'a> {
                     object = match tokenizer.next() {
                         Some(Token::StreamBegin) => {
                             let length = match dict.get("Length") {
-                                Some(Object::Numeric(n)) => *n,
+                                Some(Object::Numeric(Number::Integer(n))) => *n,
+                                Some(Object::Numeric(Number::Real(_))) => {
+                                    panic!("Real number found in stream length")
+                                }
                                 // follow reference to indirect object is required to get the length
                                 Some(Object::Ref((obj, gen), xref, bytes)) => {
-                                    match xref.get(&(*obj, *gen)) {
+                                    match xref.get_and_fix(&(*obj, *gen), bytes) {
                                         Some(address) => {
-                                            let mut t = Tokenizer::new(bytes, *address, xref);
+                                            let mut t = Tokenizer::new(bytes, address, xref);
                                             matches!(t.next(), Some(Token::Numeric(_)));
                                             match t.next() {
-                                                Some(Token::Numeric(n)) => n,
+                                                Some(Token::Numeric(Number::Integer(n))) => n,
                                                 Some(t) => panic!("Unexpected token found in object; found {t:?}"),
                                                 _ => panic!("Stream dictionary should have a Length key, {dict:?}"),
                                             }
@@ -128,6 +130,7 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Object<'a> {
                     object = Object::Numeric(n);
                     break;
                 }
+                Some(Token::String(s)) => panic!("{s:?}"),
                 Some(t) => panic!("Unexpected token found in object; found {:?}", t),
                 None => panic!("Unexpected end of stream found in object"),
             };
@@ -199,6 +202,41 @@ mod tests {
     }
 
     #[test]
+    fn test_object_trailer() {
+        let xref = &XrefTable::new();
+        let bytes = b"<</Size 14/Root 12 0 R\n/Info 13 0 R\n/ID [ <6285DCD147BBD7C07D63844C37B01D23>\n<6285DCD147BBD7C07D63844C37B01D23> ]\n/DocChecksum /700D49F24CC4E7F9CC731421E1DAB422\n>>\nstartxref\n12125\n";
+        let mut t = Tokenizer::new(bytes, 0, &xref);
+        match Object::try_from(&mut t) {
+            Ok(Object::Dictionary(d)) => {
+                assert_eq!(
+                    d.get(&String::from("Size")),
+                    Some(&Object::Numeric(Number::Integer(14)))
+                );
+                assert_eq!(
+                    d.get(&String::from("Root")),
+                    Some(&Object::Ref((12, 0), xref, bytes))
+                );
+                assert_eq!(
+                    d.get(&String::from("Info")),
+                    Some(&Object::Ref((13, 0), xref, bytes))
+                );
+                assert_eq!(
+                    d.get(&String::from("ID")),
+                    Some(&Object::Array(vec![
+                        Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23")),
+                        Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23"))
+                    ])));
+                assert_eq!(
+                    d.get(&String::from("DocChecksum")),
+                    Some(&Object::Name(String::from("700D49F24CC4E7F9CC731421E1DAB422")))
+                );
+            }
+            Ok(_) => todo!(),
+            Err(_) => todo!(),
+        }
+    }
+
+    #[test]
     fn test_object_catalog() {
         let xref = &XrefTable::new();
         let mut t = Tokenizer::new(
@@ -232,13 +270,13 @@ mod tests {
                 assert_eq!(
                     d.get(&String::from("MediaBox")),
                     Some(&Object::Array(vec![
-                        Object::Numeric(0),
-                        Object::Numeric(0),
-                        Object::Numeric(200),
-                        Object::Numeric(200)
+                        Object::Numeric(Number::Integer(0)),
+                        Object::Numeric(Number::Integer(0)),
+                        Object::Numeric(Number::Integer(200)),
+                        Object::Numeric(Number::Integer(200))
                     ]))
                 );
-                assert_eq!(d.get(&String::from("Count")), Some(&Object::Numeric(1)));
+                assert_eq!(d.get(&String::from("Count")), Some(&Object::Numeric(Number::Integer(1))));
                 assert_eq!(
                     d.get(&String::from("Kids")),
                     Some(&Object::Array(vec![Object::Ref((3, 0), xref, bytes)]))
@@ -256,7 +294,7 @@ mod tests {
         let mut t = Tokenizer::new(bytes, 0, &xref);
         match Object::try_from(&mut t) {
             Ok(Object::Stream(d, s)) => {
-                assert_eq!(d.get(&String::from("Length")), Some(&Object::Numeric(10)));
+                assert_eq!(d.get(&String::from("Length")), Some(&Object::Numeric(Number::Integer(10))));
                 assert_eq!(s, b"1234567890");
             }
             Ok(_) => todo!(),

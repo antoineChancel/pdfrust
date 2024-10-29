@@ -22,3 +22,11 @@ fn test_tracemonkey() {
     let trailer = pdfrust::trailer(&file, &xref);
     trailer.extract();
 }
+
+#[test]
+fn test_libreoffice() {
+    let file = std::fs::read("data/002-trivial-libre-office-writer.pdf").unwrap();
+    let xref = pdfrust::xref::xref_table(&file);
+    let trailer = pdfrust::trailer(&file, &xref);
+    trailer.extract();
+}
