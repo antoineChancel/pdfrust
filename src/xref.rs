@@ -116,7 +116,10 @@ fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
         Some(i) => i,
         None => panic!("Missing xref token in the entire PDF"),
     };
-    std::str::from_utf8(&stream[startxref..]).unwrap()
+    match std::str::from_utf8(&stream[startxref..]) {
+        Ok(s) => s,
+        Err(_) => panic!("Unable to read xref slice, {:?}", std::str::from_utf8(&stream[startxref..startxref + 800])),
+    }
 }
 
 // Parse PDF xref table
