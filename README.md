@@ -4,10 +4,22 @@ Pdf parser in pure Rust.
 
 References : https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf.
 
-## Usage
+## Installation
 
 ```sh
-cargo run <pdf_file>.pdf
+cargo install pdfrust
+```
+
+## Usage
+
+Text
+```zsh
+pdfrust <pdf_file>.pdf
+```
+
+Raw content
+```sh
+pdfrust --raw-content <pdf_file>.pdf
 ```
 
 ## Contributions

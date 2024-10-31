@@ -5,6 +5,7 @@ use crate::{
     object::{Dictionary, IndirectObject, Name, Number, Object},
     text,
     xref::XrefTable,
+    Extract,
 };
 
 type Rectangle = [Number; 4];
@@ -90,10 +91,10 @@ impl PageTreeKids {
         }
     }
 
-    pub fn extract(&self) -> String {
+    pub fn extract(&self, e: Extract) -> String {
         match self {
-            PageTreeKids::Page(page) => page.extract(),
-            PageTreeKids::PageTreeNode(page_tree_node) => page_tree_node.extract(),
+            PageTreeKids::Page(page) => page.extract(e),
+            PageTreeKids::PageTreeNode(page_tree_node) => page_tree_node.extract(e),
         }
     }
 }
@@ -169,10 +170,10 @@ impl PageTreeNodeRoot {
         }
     }
 
-    pub fn extract(&self) -> String {
+    pub fn extract(&self, e: Extract) -> String {
         self.kids
             .iter()
-            .map(|kid| kid.extract())
+            .map(|kid| kid.extract(e.clone()))
             .collect::<Vec<String>>()
             .join("\n")
     }
@@ -278,10 +279,10 @@ impl PageTreeNode {
         }
     }
 
-    pub fn extract(&self) -> String {
+    pub fn extract(&self, e: Extract) -> String {
         self.kids
             .iter()
-            .map(|kid| kid.extract())
+            .map(|kid| kid.extract(e.clone()))
             .collect::<Vec<String>>()
             .join("\n")
     }
@@ -330,7 +331,14 @@ impl Page {
         }
     }
 
-    pub fn extract(&self) -> String {
+    pub fn extract(&self, e: Extract) -> String {
+        match e {
+            Extract::Text => self.extract_text(),
+            Extract::RawContent => self.extract_stream(),
+        }
+    }
+
+    pub fn extract_text(&self) -> String {
         text::StreamContent::from(self.extract_stream().as_bytes()).get_text()
     }
 
@@ -417,9 +425,9 @@ impl Catalog {
         }
     }
 
-    pub fn extract(&self) -> String {
+    pub fn extract(&self, e: Extract) -> String {
         match &self.pages {
-            Some(page_tree_node) => page_tree_node.extract(),
+            Some(page_tree_node) => page_tree_node.extract(e),
             None => panic!("Pages should not be empty"),
         }
     }

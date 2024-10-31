@@ -3,6 +3,7 @@ use crate::{
     info::Info,
     object::{Array, Dictionary, IndirectObject, Number, Object},
     xref::XrefTable,
+    Extract,
 };
 
 // Trailer structure
@@ -30,10 +31,9 @@ impl<'a> Trailer<'a> {
         }
     }
 
-    pub fn extract(&self) -> String {
-        // Extract text
+    pub fn extract(&self, e: Extract) -> String {
         match &self.root {
-            Some(catalog) => catalog.extract(),
+            Some(catalog) => catalog.extract(e),
             None => panic!("Root object is empty"),
         }
     }

@@ -1,17 +1,29 @@
 use std::env;
 
+use pdfrust::Extract;
+
 struct Config {
     path: String,
+    flags: Extract,
 }
 
 impl Config {
     fn new(args: env::Args) -> Config {
         let args: Vec<String> = args.collect();
-        if args.len() != 2 {
-            panic!("CLI should have 1 arguments")
-        }
-        Config {
-            path: args[1].clone(),
+        match args.len() {
+            2 => Config {
+                path: args[1].clone(),
+                flags: pdfrust::Extract::Text,
+            },
+            3 => Config {
+                path: args[2].clone(),
+                flags: match args[1].as_str() {
+                    "--text" => pdfrust::Extract::Text,
+                    "--raw-content" => pdfrust::Extract::RawContent,
+                    _ => panic!("Invalid flag, available flags: --text, --raw-content"),
+                },
+            },
+            _ => panic!("CLI should have 2 or 3 arguments"),
         }
     }
 }
@@ -35,6 +47,6 @@ fn main() {
 
     // Trailer
     let trailer = pdfrust::trailer(&file, &xref);
-    let text = trailer.extract();
+    let text = trailer.extract(config.flags);
     println!("{text}");
 }
