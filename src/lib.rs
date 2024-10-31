@@ -11,6 +11,12 @@ pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
 
+#[derive(Debug, Clone)]
+pub enum Extract {
+    Text,
+    RawContent,
+}
+
 #[derive(Debug)]
 pub enum PdfVersion {
     V1_3,
