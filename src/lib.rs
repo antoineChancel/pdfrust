@@ -14,6 +14,7 @@ pub mod xref;
 #[derive(Debug, Clone)]
 pub enum Extract {
     Text,
+    Font,
     RawContent,
 }
 
@@ -59,7 +60,7 @@ pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trail
         None => panic!("Missing trailer token in the entire PDF"),
     };
     // slice bytes just after trailer token
-    trailer::Trailer::new(&file_stream, starttrailer + 8, xref)
+    trailer::Trailer::new(file_stream, starttrailer + 8, xref)
 }
 
 pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> body::Catalog {

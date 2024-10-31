@@ -36,7 +36,7 @@ impl<'a> From<&'a [u8]> for Stream<'a> {
     }
 }
 
-impl<'a> Iterator for Stream<'a> {
+impl Iterator for Stream<'_> {
     type Item = StreamToken;
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -46,7 +46,7 @@ impl<'a> Iterator for Stream<'a> {
                 CharacterSet::WhiteSpace(_) => continue,
                 CharacterSet::Delimiter(d) => match d {
                     Delimiter::String => {
-                        while let Some(c) = self.0.next() {
+                        for c in self.0.by_ref() {
                             match CharacterSet::from(c) {
                                 CharacterSet::Delimiter(Delimiter::String) => break,
                                 _ => buf.push(*c as char),
@@ -55,7 +55,7 @@ impl<'a> Iterator for Stream<'a> {
                         return Some(StreamToken::Text(buf));
                     }
                     Delimiter::Name => {
-                        while let Some(c) = self.0.next() {
+                        for c in self.0.by_ref() {
                             match CharacterSet::from(c) {
                                 CharacterSet::WhiteSpace(_) => break,
                                 CharacterSet::Delimiter(_) => buf.push(*c as char),
@@ -129,7 +129,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
             t_upper_j: None,
         };
         let mut buf: Vec<StreamToken> = vec![];
-        while let Some(token) = value.next() {
+        for token in value.by_ref() {
             match token {
                 StreamToken::BeginText => continue,
                 StreamToken::EndText => break,
@@ -213,10 +213,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                     Operator::TJ => {
                         text.t_upper_j = Some(
                             buf.iter()
-                                .filter(|t| match t {
-                                    StreamToken::Text(_) => true,
-                                    _ => false,
-                                })
+                                .filter(|t| matches!(t, StreamToken::Text(_)))
                                 .map(|f| match f {
                                     StreamToken::Text(t) => t.clone(),
                                     _ => panic!("Invalid token"),
@@ -264,14 +261,13 @@ impl StreamContent {
         self.text
             .iter()
             .map(|t| {
-                match t.t_upper_j {
-                    Some(ref v) => return v.join("") + "\n",
-                    None => (),
+                if let Some(ref v) = t.t_upper_j {
+                    return v.join("") + "\n";
                 };
                 match t.t_j {
-                    Some(ref s) => return s.clone() + "\n",
+                    Some(ref s) => s.clone() + "\n",
                     // Text does not contains TJ or Tj operator
-                    None => return "".to_string(),
+                    None => "".to_string(),
                 }
             })
             .collect()
@@ -321,6 +317,15 @@ mod tests {
         assert_eq!(text.t_upper_d, Some((70.0, 50.0)));
         assert_eq!(text.t_f, Some(("F1".to_string(), 12.0)));
         assert_eq!(text.t_j, Some("Hello, world!".to_string()));
+    }
+
+    #[test]
+    fn test_text_hexstrings() {
+        let raw =  b"BT\n56.8 706.189 Td /F1 10 Tf[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ\nET".as_slice();
+        let text = Text::from(raw);
+        assert_eq!(text.t_d, Some((56.8, 706.189)));
+        assert_eq!(text.t_f, Some(("F1".to_string(), 10.0)));
+        assert_eq!(text.t_upper_j, Some(vec!["lorem ipsum".to_string()]));
     }
 
     #[test]

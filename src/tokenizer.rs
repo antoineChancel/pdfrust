@@ -224,18 +224,17 @@ impl<'a> Iterator for Tokenizer<'a> {
                             if self.curr_idx >= self.bytes.len() {
                                 break;
                             }
-                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                                CharacterSet::Delimiter(Delimiter::String) => {
-                                    if self.bytes[self.curr_idx] == b'(' {
-                                        opened_parathesis += 1;
-                                    } else if self.bytes[self.curr_idx] == b')' {
-                                        closed_parathesis += 1;
-                                    }
-                                    if opened_parathesis == closed_parathesis {
-                                        break;
-                                    }
+                            if let CharacterSet::Delimiter(Delimiter::String) =
+                                CharacterSet::from(&self.bytes[self.curr_idx])
+                            {
+                                if self.bytes[self.curr_idx] == b'(' {
+                                    opened_parathesis += 1;
+                                } else if self.bytes[self.curr_idx] == b')' {
+                                    closed_parathesis += 1;
                                 }
-                                _ => (),
+                                if opened_parathesis == closed_parathesis {
+                                    break;
+                                }
                             }
                         }
                         token = Some(Token::LitteralString(&self.bytes[begin..self.curr_idx]));
@@ -281,7 +280,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                                         token = Some(Token::IndirectRef(
                                             (obj, gen),
                                             self.xref,
-                                            &self.bytes,
+                                            self.bytes,
                                         ));
                                     }
                                     Some(Token::String(b"obj")) => {
@@ -402,5 +401,27 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::ObjEnd));
+    }
+
+    #[test]
+    fn test_pdfbytes_font_object() {
+        let binding: XrefTable = XrefTable::new();
+        let mut pdf = Tokenizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, &binding);
+        assert_eq!(pdf.next(), Some(Token::ObjBegin));
+        assert_eq!(pdf.next(), Some(Token::DictBegin));
+        assert_eq!(pdf.next(), Some(Token::Name("Type")));
+        assert_eq!(pdf.next(), Some(Token::Name("Font")));
+        assert_eq!(pdf.next(), Some(Token::Name("Subtype")));
+        assert_eq!(pdf.next(), Some(Token::Name("TrueType")));
+        assert_eq!(pdf.next(), Some(Token::Name("BaseFont")));
+        assert_eq!(pdf.next(), Some(Token::Name("BAAAAA+DejaVuSans")));
+        assert_eq!(pdf.next(), Some(Token::Name("FirstChar")));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Name("LastChar")));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(27))));
+        assert_eq!(pdf.next(), Some(Token::Name("Widths")));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(600))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(557))));
     }
 }

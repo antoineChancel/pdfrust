@@ -19,6 +19,7 @@ impl Config {
                 path: args[2].clone(),
                 flags: match args[1].as_str() {
                     "--text" => pdfrust::Extract::Text,
+                    "--font" => pdfrust::Extract::Font,
                     "--raw-content" => pdfrust::Extract::RawContent,
                     _ => panic!("Invalid flag, available flags: --text, --raw-content"),
                 },
@@ -43,10 +44,10 @@ fn main() {
     }
 
     // Cross reference table
-    let xref = pdfrust::xref::xref_table(&file);
+    let xref = pdfrust::xref::xref_table(file);
 
     // Trailer
-    let trailer = pdfrust::trailer(&file, &xref);
+    let trailer = pdfrust::trailer(file, &xref);
     let text = trailer.extract(config.flags);
     println!("{text}");
 }

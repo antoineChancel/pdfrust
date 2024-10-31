@@ -6,6 +6,12 @@ type Offset = usize;
 #[derive(Debug, PartialEq)]
 pub struct XrefTable(HashMap<object::IndirectObject, Offset>);
 
+impl Default for XrefTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl XrefTable {
     pub fn new() -> Self {
         XrefTable(HashMap::new())
@@ -25,7 +31,7 @@ impl XrefTable {
                 // xref table adress is broken
                 } else {
                     // add a new line at the beginning of the pattern to avoid matching 11 0 obj with 1 0 obj
-                    pattern.insert(0, '\n' as u8);
+                    pattern.insert(0, b'\n');
                     // look for object header in byte stream
                     Some(
                         bytes
@@ -43,6 +49,10 @@ impl XrefTable {
     pub fn len(&self) -> usize {
         self.0.len()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -56,14 +66,14 @@ fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
     // Try reading first object idx and number of object of the xref subsection
     let mut token = line.split_whitespace();
     let xref_sub_first_obj = match token.next() {
-        Some(w) => match usize::from_str_radix(w, 10) {
+        Some(w) => match w.parse::<usize>() {
             Ok(i) => i,
             Err(_) => return None,
         },
         None => return None,
     };
     let xref_sub_nb_obj = match token.next() {
-        Some(w) => match usize::from_str_radix(w, 10) {
+        Some(w) => match w.parse::<usize>() {
             Ok(i) => i,
             Err(_) => return None,
         },
@@ -76,14 +86,14 @@ fn xref_table_subsection_entry(line: &str) -> Option<XrefEntry> {
     // Try reading an xref entry
     let mut token = line.split_whitespace();
     let offset = match token.next() {
-        Some(w) => match usize::from_str_radix(w, 10) {
+        Some(w) => match w.parse::<usize>() {
             Ok(i) => i,
             Err(_) => return None,
         },
         None => return None,
     };
     let generation = match token.next() {
-        Some(w) => match usize::from_str_radix(w, 10) {
+        Some(w) => match w.parse::<usize>() {
             Ok(i) => i,
             Err(_) => return None,
         },
@@ -118,7 +128,7 @@ fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
     table
 }
 
-fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
+fn xref_slice(stream: &[u8]) -> &str {
     // TODO - improve this by reading the startxref on last line
     let startxref = match stream.windows(4).position(|w| w == b"xref") {
         Some(i) => i,
@@ -136,7 +146,7 @@ fn xref_slice<'a>(stream: &'a [u8]) -> &'a str {
 // Parse PDF xref table
 pub fn xref_table(file_stream: &[u8]) -> XrefTable {
     // Read the cross reference table by lines
-    let mut line = xref_slice(&file_stream).lines();
+    let mut line = xref_slice(file_stream).lines();
 
     // First line should be xref
     match line.next() {

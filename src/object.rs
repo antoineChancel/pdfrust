@@ -25,7 +25,7 @@ impl<'a> TryFrom<&mut Tokenizer<'a>> for Array<'a> {
 
     fn try_from(tokenizer: &mut Tokenizer<'a>) -> Result<Self, Self::Error> {
         let mut array = Array::new();
-        while let Some(t) = tokenizer.next() {
+        for t in tokenizer.by_ref() {
             match t {
                 Token::ArrayEnd => break,
                 _ => array.push(Object::try_from(t).unwrap()),
