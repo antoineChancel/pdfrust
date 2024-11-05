@@ -52,12 +52,9 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Prev should be a numeric"),
             },
             root: match value.get("Root") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Catalog::new(&bytes, address, xref)),
-                        None => None,
-                    }
-                }
+                Some(Object::Ref((obj, gen), xref, bytes)) => xref
+                    .get_and_fix(&(*obj, *gen), bytes)
+                    .map(|address| Catalog::new(bytes, address, xref)),
                 _ => panic!("Root should be a Catalog object"),
             },
             encrypt: match value.get("Encrypt") {
@@ -66,12 +63,9 @@ impl<'a> From<Dictionary<'a>> for Trailer<'a> {
                 _ => panic!("Encrypt should be an indirect object"),
             },
             info: match value.get("Info") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Info::new(&bytes, address, xref)),
-                        None => None,
-                    }
-                }
+                Some(Object::Ref((obj, gen), xref, bytes)) => xref
+                    .get_and_fix(&(*obj, *gen), bytes)
+                    .map(|address| Info::new(bytes, address, xref)),
                 None => None,
                 _ => panic!("Info should be an indirect object"),
             },

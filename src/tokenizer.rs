@@ -1,3 +1,6 @@
+use core::panic;
+use std::{iter::Peekable, slice::Iter};
+
 use crate::xref::XrefTable;
 
 // Tokenizer for PDF objects
@@ -34,11 +37,11 @@ pub enum Number {
 #[derive(Debug, PartialEq)]
 pub enum Token<'a> {
     Numeric(Number),
-    String(&'a [u8]),
-    LitteralString(&'a [u8]),
-    HexString(&'a [u8]),
-    Name(&'a str),
-    Comment(&'a [u8]),
+    String(Vec<u8>),
+    LitteralString(Vec<u8>),
+    HexString(Vec<u8>),
+    Name(String),
+    Comment(Vec<u8>),
     IndirectRef((i32, i32), &'a XrefTable, &'a [u8]),
     DictBegin,
     DictEnd,
@@ -89,45 +92,94 @@ impl From<&u8> for CharacterSet {
     }
 }
 
-pub struct Tokenizer<'a> {
-    bytes: &'a [u8],
-    curr_idx: usize,
+pub struct Lemmatizer<'a> {
+    tokenizer: Tokenizer<'a>,
     xref: &'a XrefTable,
 }
 
-impl<'a> Tokenizer<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Tokenizer<'a> {
-        Tokenizer {
-            bytes,
-            curr_idx,
+impl<'a> Lemmatizer<'a> {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Lemmatizer<'a> {
+        Lemmatizer {
+            tokenizer: Tokenizer::new(bytes, curr_idx),
             xref,
         }
     }
 
-    pub fn peek(&mut self, lap: usize) -> Option<Token<'a>> {
-        let curr_idx = self.curr_idx;
-        let mut token = None;
-        for _ in 0..lap {
-            token = self.next();
+    pub fn next_n(&mut self, length: usize) -> Vec<u8> {
+        self.tokenizer.next_n(length)
+    }
+}
+
+impl<'a> Iterator for Lemmatizer<'a> {
+    type Item = Token<'a>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.tokenizer.next() {
+            Some(Token::Numeric(Number::Integer(a))) => {
+                // try reading a indirect reference or object reference
+                let mut new_tokenizer = self.tokenizer.clone();
+                match new_tokenizer.next() {
+                    Some(Token::Numeric(Number::Integer(b))) => match new_tokenizer.next() {
+                        Some(Token::String(s)) => match s.as_slice() {
+                            b"R" => {
+                                self.tokenizer.next();
+                                self.tokenizer.next();
+                                return Some(Token::IndirectRef(
+                                    (a, b),
+                                    self.xref,
+                                    self.tokenizer.bytes,
+                                ));
+                            }
+                            b"obj" => {
+                                self.tokenizer.next();
+                                self.tokenizer.next();
+                                return Some(Token::ObjBegin);
+                            }
+                            _ => (),
+                        },
+                        _ => return Some(Token::Numeric(Number::Integer(a))),
+                    },
+                    _ => return Some(Token::Numeric(Number::Integer(a))),
+                }
+            }
+            Some(Token::Comment(_)) => return self.next(), // skip to next token
+            Some(t) => return Some(t),
+            None => return None,
+        };
+        None
+    }
+}
+
+#[derive(Clone)]
+struct Tokenizer<'a> {
+    bytes: &'a [u8],
+    byte: Peekable<Iter<'a, u8>>,
+}
+
+impl<'a> Tokenizer<'a> {
+    pub fn new(bytes: &'a [u8], curr_idx: usize) -> Tokenizer<'a> {
+        Tokenizer {
+            bytes,
+            byte: bytes[curr_idx..].iter().peekable(),
         }
-        self.curr_idx = curr_idx;
-        token
     }
 
-    pub fn next_n(&mut self, n: usize) -> Vec<u8> {
+    pub fn next_n(&mut self, length: usize) -> Vec<u8> {
         // skip whitespaces characters
         loop {
-            if self.curr_idx >= self.bytes.len() {
-                break;
-            }
-            match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                CharacterSet::WhiteSpace(_) => self.curr_idx += 1,
-                _ => break,
-            }
+            match self.byte.peek() {
+                Some(&a) => match CharacterSet::from(a) {
+                    CharacterSet::WhiteSpace(_) => self.byte.next(),
+                    _ => break,
+                },
+                None => panic!("End of stream reached"),
+            };
         }
-        let bytes = Vec::from(&self.bytes[self.curr_idx..self.curr_idx + n]);
-        self.curr_idx += n;
-        bytes
+        self.byte
+            .clone()
+            .take(length)
+            .map(|&x| x)
+            .collect::<Vec<u8>>()
     }
 }
 
@@ -135,123 +187,101 @@ impl<'a> Iterator for Tokenizer<'a> {
     type Item = Token<'a>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut token = None;
-        loop {
-            if self.curr_idx >= self.bytes.len() {
-                break;
-            }
-            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+        while let Some(c) = self.byte.next() {
+            match CharacterSet::from(c) {
                 CharacterSet::Delimiter(v) => match v {
                     Delimiter::Comment => {
                         // read all characters until a line feed or cariage return is met
-                        let begin = self.curr_idx + 1;
-                        loop {
-                            self.curr_idx += 1;
+                        let mut buf: Vec<u8> = vec![];
+                        while let Some(c) = self.byte.peek() {
                             // end of stream
-                            if self.curr_idx >= self.bytes.len() {
-                                break;
-                            }
-                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                            match CharacterSet::from(*c) {
                                 CharacterSet::WhiteSpace(WhiteSpace::CarriageReturn) => break,
                                 CharacterSet::WhiteSpace(WhiteSpace::LineFeed) => break,
-                                _ => (),
+                                _ => buf.push(**c),
                             }
+                            self.byte.next();
                         }
-                        token = Some(Token::Comment(&self.bytes[begin..self.curr_idx]));
-                        break;
+                        return Some(Token::Comment(buf));
                     }
                     Delimiter::Array => {
-                        if &self.bytes[self.curr_idx..self.curr_idx + 2] == b"<<".as_ref() {
-                            self.curr_idx += 2;
-                            token = Some(Token::DictBegin);
-                            break;
-                        } else if &self.bytes[self.curr_idx..self.curr_idx + 2] == b">>".as_ref() {
-                            self.curr_idx += 2;
-                            token = Some(Token::DictEnd);
-                            break;
-                        } else if self.bytes[self.curr_idx] == b'<' {
-                            self.curr_idx += 1;
-                            let begin = self.curr_idx;
-                            loop {
-                                self.curr_idx += 1;
-                                // end of stream
-                                if self.curr_idx >= self.bytes.len() {
-                                    break;
+                        match c {
+                            b'<' => match self.byte.peek() {
+                                // begin dictionary
+                                Some(b'<') => {
+                                    self.byte.next();
+                                    return Some(Token::DictBegin);
                                 }
-                                if self.bytes[self.curr_idx] == b'>' {
-                                    break;
-                                };
-                            }
-                            token = Some(Token::HexString(&self.bytes[begin..self.curr_idx]));
-                            self.curr_idx += 1;
-                            break;
-                        } else if self.bytes[self.curr_idx] == b'[' {
-                            self.curr_idx += 1;
-                            token = Some(Token::ArrayBegin);
-                            break;
-                        } else if self.bytes[self.curr_idx] == b']' {
-                            self.curr_idx += 1;
-                            token = Some(Token::ArrayEnd);
-                            break;
+                                // litteral
+                                Some(_) => {
+                                    let mut buf: Vec<u8> = vec![];
+                                    loop {
+                                        match self.byte.next() {
+                                            Some(b'>') => break,
+                                            Some(a) => buf.push(*a),
+                                            None => panic!(
+                                                "Reached end of stream before enf of litteral"
+                                            ),
+                                        }
+                                    }
+                                    return Some(Token::HexString(buf));
+                                }
+                                None => panic!("No character following '<'"),
+                            },
+                            b'>' => match self.byte.peek() {
+                                Some(b'>') => {
+                                    self.byte.next();
+                                    return Some(Token::DictEnd);
+                                }
+                                Some(_) => continue,
+                                None => panic!("Reached end of stream before end of litteral"),
+                            },
+                            b'[' => return Some(Token::ArrayBegin),
+                            b']' => return Some(Token::ArrayEnd),
+                            l => panic!("Character {l} is not covered"),
                         }
                     }
                     Delimiter::Name => {
-                        let begin = self.curr_idx + 1;
-                        loop {
-                            self.curr_idx += 1;
-                            // end of stream
-                            if self.curr_idx >= self.bytes.len() {
-                                break;
-                            }
-                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                                CharacterSet::Regular(_) => (),
+                        let mut buf: String = String::new();
+                        while let Some(a) = self.byte.peek() {
+                            match CharacterSet::from(*a) {
+                                CharacterSet::Regular(a) => buf.push(a as char),
                                 _ => break,
                             }
+                            self.byte.next();
                         }
-                        token = Some(Token::Name(
-                            std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap(),
-                        ));
-                        break;
+                        return Some(Token::Name(buf));
                     }
-                    // TODO: to be treated
                     Delimiter::String => {
-                        let begin = self.curr_idx + 1;
+                        let mut buf: Vec<u8> = vec![];
+                        // nested parentesis counters
                         let mut opened_parathesis: u8 = 1;
                         let mut closed_parathesis: u8 = 0;
-                        loop {
-                            self.curr_idx += 1;
-                            // end of stream
-                            if self.curr_idx >= self.bytes.len() {
-                                break;
-                            }
-                            match CharacterSet::from(&self.bytes[self.curr_idx]) {
-                                CharacterSet::Delimiter(Delimiter::String) => {
-                                    if self.bytes[self.curr_idx] == b'(' {
-                                        opened_parathesis += 1;
-                                    } else if self.bytes[self.curr_idx] == b')' {
-                                        closed_parathesis += 1;
-                                    }
-                                    if opened_parathesis == closed_parathesis {
-                                        break;
-                                    }
+                        while let Some(cursor) = self.byte.next() {
+                            if let CharacterSet::Delimiter(Delimiter::String) =
+                                CharacterSet::from(cursor)
+                            {
+                                if *cursor == b'(' {
+                                    opened_parathesis += 1;
+                                } else if *cursor == b')' {
+                                    closed_parathesis += 1;
                                 }
-                                _ => (),
+                                if opened_parathesis == closed_parathesis {
+                                    break;
+                                }
                             }
+                            buf.push(*cursor);
                         }
-                        token = Some(Token::LitteralString(&self.bytes[begin..self.curr_idx]));
-                        self.curr_idx += 1; // skip closing parenthesis
-                        break;
+                        return Some(Token::LitteralString(buf));
                     }
                 },
                 // read regular string
                 CharacterSet::Regular(_) => {
-                    let begin = self.curr_idx;
+                    let mut buf: Vec<u8> = vec![];
+                    buf.push(*c);
                     let mut is_numeric = true;
-                    loop {
-                        if self.curr_idx >= self.bytes.len() {
-                            break;
-                        }
-                        match CharacterSet::from(&self.bytes[self.curr_idx]) {
+                    while let Some(&c) = self.byte.peek() {
+                        match CharacterSet::from(c) {
                             CharacterSet::Regular(
                                 b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8' | b'9'
                                 | b'.',
@@ -259,63 +289,31 @@ impl<'a> Iterator for Tokenizer<'a> {
                             CharacterSet::Regular(_) => is_numeric = false,
                             _ => break,
                         }
-                        self.curr_idx += 1;
+                        buf.push(*c);
+                        self.byte.next();
                     }
                     if is_numeric {
-                        let numeric =
-                            std::str::from_utf8(&self.bytes[begin..self.curr_idx]).unwrap();
+                        let numeric = std::str::from_utf8(&buf).unwrap();
                         match numeric.parse::<i32>() {
-                            Ok(n) => token = Some(Token::Numeric(Number::Integer(n))),
+                            Ok(n) => return Some(Token::Numeric(Number::Integer(n))),
                             Err(_) => match numeric.parse::<f32>() {
-                                Ok(n) => token = Some(Token::Numeric(Number::Real(n))),
-                                Err(_) => panic!("Unable to parse numeric"),
+                                Ok(n) => return Some(Token::Numeric(Number::Real(n))),
+                                Err(_) => (),
                             },
                         }
-                        // indirect reference (peek next 2 tokens)
-                        match token {
-                            Some(Token::Numeric(Number::Integer(obj))) => match self.peek(1) {
-                                Some(Token::Numeric(Number::Integer(gen))) => match self.peek(2) {
-                                    Some(Token::String(b"R")) => {
-                                        self.next(); // consume 'gen'
-                                        self.next(); // consume 'R'
-                                        token = Some(Token::IndirectRef(
-                                            (obj, gen),
-                                            self.xref,
-                                            &self.bytes,
-                                        ));
-                                    }
-                                    Some(Token::String(b"obj")) => {
-                                        self.next(); // consume 'gen'
-                                        self.next(); // consume 'R'
-                                        token = Some(Token::ObjBegin);
-                                    }
-                                    _ => break,
-                                },
-                                _ => break,
-                            },
-                            Some(Token::Numeric(Number::Real(_))) => (),
-                            t => panic!("Unable to parse {t:?} to numeric"),
-                        }
-                    } else if &self.bytes[begin..self.curr_idx] == b"stream" {
-                        token = Some(Token::StreamBegin);
-                    } else if &self.bytes[begin..self.curr_idx] == b"endstream" {
-                        token = Some(Token::StreamEnd);
-                    } else if &self.bytes[begin..self.curr_idx] == b"endobj" {
-                        token = Some(Token::ObjEnd);
-                    } else {
-                        token = Some(Token::String(&self.bytes[begin..self.curr_idx]));
+                    };
+                    match buf.as_slice() {
+                        b"stream" => return Some(Token::StreamBegin),
+                        b"endstream" => return Some(Token::StreamEnd),
+                        b"endobj" => return Some(Token::ObjEnd),
+                        _ => return Some(Token::String(buf)),
                     }
-                    break;
                 }
                 // absorb whitespaces before a new token is met
-                CharacterSet::WhiteSpace(_) => self.curr_idx += 1,
+                CharacterSet::WhiteSpace(_) => continue,
             }
         }
-        match token {
-            Some(Token::Comment(_)) => self.next(), //skip somment if any
-            Some(token) => Some(token),
-            None => None,
-        }
+        None
     }
 }
 
@@ -326,48 +324,54 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_skipped_comment() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", 0, &binding);
-        // comments are skipped by iterator
-        assert_eq!(pdf.next(), Some(Token::ObjBegin));
+        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", 0);
+        assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7".to_vec())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::String(b"obj".to_vec())));
+        assert_eq!(pdf.next(), Some(Token::Comment(b" entry point".to_vec())));
+        assert_eq!(pdf.next(), None);
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"(Hello World)", 0, &binding);
-        assert_eq!(pdf.next(), Some(Token::LitteralString(b"Hello World")));
+        let mut pdf = Tokenizer::new(b"(Hello World)", 0);
+        assert_eq!(
+            pdf.next(),
+            Some(Token::LitteralString(b"Hello World".to_vec()))
+        );
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"((Hello) (World))", 0, &binding);
-        assert_eq!(pdf.next(), Some(Token::LitteralString(b"(Hello) (World)")));
+        let mut pdf = Tokenizer::new(b"((Hello) (World))", 0);
+        assert_eq!(
+            pdf.next(),
+            Some(Token::LitteralString(b"(Hello) (World)".to_vec()))
+        );
     }
 
     #[test]
     fn test_pdfbytes_iterator_hex_string() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", 0, &binding);
+        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", 0);
         assert_eq!(
             pdf.next(),
-            Some(Token::HexString(b"4E6F762073686D6F7A206B6120706F702E"))
+            Some(Token::HexString(
+                b"4E6F762073686D6F7A206B6120706F702E".to_vec()
+            ))
         );
     }
 
     #[test]
     fn test_pdfbytes_numeric_float() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"12.34", 0, &binding);
+        let mut pdf = Tokenizer::new(b"12.34", 0);
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Real(12.34))));
     }
 
     #[test]
     fn test_pdfbytes_mediabox_float() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"/MediaBox [ 0 0 200.00 200.00 ] ", 0, &binding);
-        assert_eq!(pdf.next(), Some(Token::Name("MediaBox")));
+        let mut pdf = Tokenizer::new(b"/MediaBox [ 0 0 200.00 200.00 ] ", 0);
+        assert_eq!(pdf.next(), Some(Token::Name("MediaBox".to_string())));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
@@ -377,27 +381,109 @@ mod tests {
     }
 
     #[test]
-    fn test_pdfbytes_iterator_full() {
-        let binding: XrefTable = XrefTable::new();
-        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", 0, &binding);
-        assert_eq!(pdf.next(), Some(Token::ObjBegin));
+    fn test_tokenizer_1() {
+        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", 0);
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(2))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::String(b"obj".to_vec())));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
-        assert_eq!(pdf.next(), Some(Token::Name("Type")));
-        assert_eq!(pdf.next(), Some(Token::Name("Pages")));
-        assert_eq!(pdf.next(), Some(Token::Name("MediaBox")));
+        assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Pages".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("MediaBox".to_string())));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
-        assert_eq!(pdf.next(), Some(Token::Name("Count")));
+        assert_eq!(pdf.next(), Some(Token::Name("Count".to_string())));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
-        assert_eq!(pdf.next(), Some(Token::Name("Kids")));
+        assert_eq!(pdf.next(), Some(Token::Name("Kids".to_string())));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(3))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::String(b"R".to_vec())));
+        assert_eq!(pdf.next(), Some(Token::ArrayEnd));
+        assert_eq!(pdf.next(), Some(Token::DictEnd));
+        assert_eq!(pdf.next(), Some(Token::ObjEnd));
+    }
+
+    #[test]
+    fn test_tokenizer() {
+        let mut pdf = Tokenizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0);
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(9))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::String(b"obj".to_vec())));
+        assert_eq!(pdf.next(), Some(Token::DictBegin));
+        assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Font".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Subtype".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("TrueType".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("BaseFont".to_string())));
+        assert_eq!(
+            pdf.next(),
+            Some(Token::Name("BAAAAA+DejaVuSans".to_string()))
+        );
+        assert_eq!(pdf.next(), Some(Token::Name("FirstChar".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Name("LastChar".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(27))));
+        assert_eq!(pdf.next(), Some(Token::Name("Widths".to_string())));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(600))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(557))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(611))));
+    }
+
+    #[test]
+    fn test_lemmatizer_1() {
+        let xref = XrefTable::new();
+        let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, &xref);
+        assert_eq!(pdf.next(), Some(Token::ObjBegin));
+        assert_eq!(pdf.next(), Some(Token::DictBegin));
+        assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Font".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Subtype".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("TrueType".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("BaseFont".to_string())));
+        assert_eq!(
+            pdf.next(),
+            Some(Token::Name("BAAAAA+DejaVuSans".to_string()))
+        );
+        assert_eq!(pdf.next(), Some(Token::Name("FirstChar".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Name("LastChar".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(27))));
+        assert_eq!(pdf.next(), Some(Token::Name("Widths".to_string())));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(600))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(557))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(611))));
+    }
+
+    #[test]
+    fn test_lemmatizer_0() {
+        let xref = XrefTable::new();
+        let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n";
+        let mut pdf = Lemmatizer::new(bytes, 0, &xref);
+        assert_eq!(pdf.next(), Some(Token::ObjBegin));
+        assert_eq!(pdf.next(), Some(Token::DictBegin));
+        assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("Pages".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Name("MediaBox".to_string())));
+        assert_eq!(pdf.next(), Some(Token::ArrayBegin));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(200))));
+        assert_eq!(pdf.next(), Some(Token::ArrayEnd));
+        assert_eq!(pdf.next(), Some(Token::Name("Count".to_string())));
+        assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
+        assert_eq!(pdf.next(), Some(Token::Name("Kids".to_string())));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(
             pdf.next(),
-            Some(Token::IndirectRef((3, 0), &binding, &pdf.bytes))
+            Some(Token::IndirectRef((3, 0), &xref, &bytes.as_slice()))
         );
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));

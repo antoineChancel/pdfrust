@@ -1,8 +1,8 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 use crate::{
     filters,
-    object::{Dictionary, IndirectObject, Name, Number, Object},
+    object::{Dictionary, Name, Number, Object},
     text,
     xref::XrefTable,
     Extract,
@@ -36,7 +36,7 @@ impl From<Dictionary<'_>> for StreamDictionary {
                 Object::Numeric(n) => n.clone(),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(&bytes, address, xref) {
+                        Some(address) => match Object::new(bytes, address, xref) {
                             Object::Numeric(n) => n,
                             _ => panic!("Length should be a numeric"),
                         },
@@ -100,15 +100,93 @@ impl PageTreeKids {
 }
 
 #[derive(Debug, PartialEq)]
-struct Font(HashMap<Name, IndirectObject>);
+struct Font {
+    subtype: Name,
+    name: Option<Name>,
+    base_font: Name,
+    first_char: Option<Number>,
+    last_char: Option<Number>,
+    to_unicode: Option<StreamContent>,
+}
+
+impl Display for Font {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.to_unicode
+        )
+    }
+}
 
 impl From<Dictionary<'_>> for Font {
     fn from(value: Dictionary) -> Self {
-        Font(
+        match value.get("Type") {
+            Some(Object::Name(t)) => {
+                if t != "Font" {
+                    panic!("Font dictionnary 'Type' key should be 'Font', found {t:?}")
+                }
+            }
+            Some(o) => panic!("Font dictionnary 'Type' key a Name object, found {o:?}"),
+            None => panic!("Font dictionnary should have a 'Type' key"),
+        };
+        Font {
+            subtype: match value.get("Subtype").unwrap() {
+                Object::Name(name) => name.clone(),
+                _ => panic!("Subtype should be a name"),
+            },
+            name: match value.get("Name") {
+                Some(Object::Name(name)) => Some(name.clone()),
+                Some(o) => panic!("Name should be a name, found {o:?}"),
+                None => None,
+            },
+            base_font: match value.get("BaseFont").unwrap() {
+                Object::Name(name) => name.clone(),
+                _ => panic!("BaseFont should be a name"),
+            },
+            first_char: match value.get("FirstChar") {
+                Some(Object::Numeric(n)) => Some(n.clone()),
+                Some(o) => panic!("FirstChar should be a numeric object, found {o:?}"),
+                None => None,
+            },
+            last_char: match value.get("LastChar") {
+                Some(Object::Numeric(n)) => Some(n.clone()),
+                Some(o) => panic!("LastChar should be a numeric object, found {o:?}"),
+                None => None,
+            },
+            to_unicode: match value.get("ToUnicode") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => {
+                    match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => match Object::new(bytes, address, xref) {
+                            Object::Stream(_, stream) => Some(StreamContent::from(stream)),
+                            o => panic!("ToUnicode should be a stream object, found {o:?}"),
+                        },
+                        None => panic!("ToUnicode stream object not found in xref table"),
+                    }
+                }
+                None => None,
+                _ => panic!("ToUnicode should be an indirect object"),
+            },
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+struct FontMap(HashMap<Name, Font>);
+
+impl From<Dictionary<'_>> for FontMap {
+    fn from(value: Dictionary) -> Self {
+        FontMap(
             value
                 .iter()
                 .map(|(key, value)| match value {
-                    Object::Ref((obj, gen), _xref, _bytes) => (key.clone(), (*obj, *gen)),
+                    Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => {
+                            match Object::new(bytes, address, xref) {
+                            Object::Dictionary(t) => (key.clone(), Font::from(t)),
+                            o => panic!("Font object is not a dictionary, found {o:?}"),
+                        }},
+                        None => panic!("Font dictionnary object associated to {key:?} was not found in xref table"),
+                    },
                     _ => panic!("Font should be an indirect object"),
                 })
                 .collect(),
@@ -118,7 +196,7 @@ impl From<Dictionary<'_>> for Font {
 
 #[derive(Debug, PartialEq)]
 pub struct Resources {
-    font: Option<Font>,
+    font: Option<FontMap>,
 }
 
 impl Resources {
@@ -134,16 +212,15 @@ impl From<Dictionary<'_>> for Resources {
     fn from(value: Dictionary) -> Self {
         Resources {
             font: match value.get("Font") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => match xref
-                    .get_and_fix(&(*obj, *gen), bytes)
-                {
-                    Some(address) => Some(Font::from(match Object::new(&bytes, address, xref) {
-                        Object::Dictionary(t) => t,
-                        _ => panic!("Font should be a dictionary"),
-                    })),
-                    None => None,
-                },
-                Some(Object::Dictionary(t)) => Some(Font::from(t.clone())),
+                Some(Object::Ref((obj, gen), xref, bytes)) => {
+                    xref.get_and_fix(&(*obj, *gen), bytes).map(|address| {
+                        FontMap::from(match Object::new(bytes, address, xref) {
+                            Object::Dictionary(t) => t,
+                            _ => panic!("Font should be a dictionary"),
+                        })
+                    })
+                }
+                Some(Object::Dictionary(t)) => Some(FontMap::from(t.clone())),
                 None => None,
                 f => panic!("Font should be an indirect object or a dictionary; found {f:?}"),
             },
@@ -188,7 +265,7 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
                     .map(|kid| match kid {
                         Object::Ref((obj, gen), xref, bytes) => {
                             match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                Some(address) => PageTreeKids::new(&bytes, address, xref),
+                                Some(address) => PageTreeKids::new(bytes, address, xref),
                                 None => panic!("Kid not found in xref table"),
                             }
                         }
@@ -252,8 +329,8 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
             },
             resources: match value.get("Resources") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), &bytes) {
-                        Some(address) => Some(Resources::new(&bytes, address, xref)),
+                    match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => Some(Resources::new(bytes, address, xref)),
                         None => panic!("Kid not found in xref table"),
                     }
                 }
@@ -297,7 +374,7 @@ impl From<Dictionary<'_>> for PageTreeNode {
                     .map(|kid| match kid {
                         Object::Ref((obj, gen), xref, bytes) => {
                             match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                Some(address) => PageTreeKids::new(&bytes, address, xref),
+                                Some(address) => PageTreeKids::new(bytes, address, xref),
                                 None => panic!("Kid not found in xref table"),
                             }
                         }
@@ -335,6 +412,19 @@ impl Page {
         match e {
             Extract::Text => self.extract_text(),
             Extract::RawContent => self.extract_stream(),
+            Extract::Font => self.extract_font(),
+        }
+    }
+
+    pub fn extract_font(&self) -> String {
+        match &self.resources.font {
+            Some(font_map) => font_map
+                .0
+                .values()
+                .map(|font| format!("{font}\n"))
+                .collect::<Vec<String>>()
+                .join("\n"),
+            None => panic!("Font should not be empty"),
         }
     }
 
@@ -366,7 +456,7 @@ impl From<Dictionary<'_>> for Page {
                 Object::Dictionary(t) => Resources::from(t.clone()),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Resources::new(&bytes, address, xref),
+                        Some(address) => Resources::new(bytes, address, xref),
                         None => panic!("Resource dictionnary address not found in xref keys"),
                     }
                 }
@@ -397,7 +487,7 @@ impl From<Dictionary<'_>> for Page {
             contents: match value.get("Contents") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Stream::new(&bytes, address, xref)),
+                        Some(address) => Some(Stream::new(bytes, address, xref)),
                         None => panic!("Resource dictionnary address not found in xref keys"),
                     }
                 }
@@ -437,12 +527,9 @@ impl From<Dictionary<'_>> for Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen), xref, bytes) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(PageTreeNodeRoot::new(&bytes, address, xref)),
-                        None => None,
-                    }
-                }
+                Object::Ref((obj, gen), xref, bytes) => xref
+                    .get_and_fix(&(*obj, *gen), bytes)
+                    .map(|address| PageTreeNodeRoot::new(bytes, address, xref)),
                 _ => panic!("Pages should be an indirect object"),
             },
         }
