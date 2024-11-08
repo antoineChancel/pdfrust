@@ -2,8 +2,8 @@ use core::panic;
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    filters::flate_decode,
     cmap::ToUnicodeCMap,
+    filters::flate_decode,
     object::{Dictionary, Name, Number, Object},
     text,
     xref::XrefTable,
@@ -66,7 +66,9 @@ struct Stream(StreamDictionary, StreamContent);
 impl Stream {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
         let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
-            Object::Stream(StreamObject{ header, bytes }) => (StreamDictionary::from(header), bytes),
+            Object::Stream(StreamObject { header, bytes }) => {
+                (StreamDictionary::from(header), bytes)
+            }
             _ => panic!("Stream should be a dictionary"),
         };
         Stream(dict, stream)
@@ -76,7 +78,7 @@ impl Stream {
         match &self.0.filter {
             Some(Filter::FlateDecode) => flate_decode(&self.1),
             // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
-            None => std::str::from_utf8(&self.1).unwrap().to_string()
+            None => std::str::from_utf8(&self.1).unwrap().to_string(),
         }
     }
 }
@@ -175,7 +177,9 @@ impl From<Dictionary<'_>> for Font {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
                         Some(address) => match Object::new(bytes, address, xref) {
-                            Object::Stream(stream) => Some(ToUnicodeCMap::from(Stream::from(stream).get_data())),
+                            Object::Stream(stream) => {
+                                Some(ToUnicodeCMap::from(Stream::from(stream).get_data()))
+                            }
                             o => panic!("ToUnicode should be a stream object, found {o:?}"),
                         },
                         None => panic!("ToUnicode stream object not found in xref table"),

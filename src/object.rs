@@ -12,11 +12,11 @@ pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 #[derive(Debug, PartialEq, Clone)]
 pub struct Stream<'a> {
     pub header: Dictionary<'a>,
-    pub bytes: Vec<u8>
+    pub bytes: Vec<u8>,
 }
 
 impl<'a> Stream<'a> {
-    fn new(header: Dictionary<'a>, bytes: Vec<u8> ) -> Self {
+    fn new(header: Dictionary<'a>, bytes: Vec<u8>) -> Self {
         Stream { header, bytes }
     }
 }
@@ -311,7 +311,10 @@ mod tests {
         let bytes = b"4 0 obj\n<<\n  /Length 10\n>>\nstream\n1234567890\nendstream\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {
-            Ok(Object::Stream(Stream { header: d, bytes: s })) => {
+            Ok(Object::Stream(Stream {
+                header: d,
+                bytes: s,
+            })) => {
                 assert_eq!(
                     d.get(&String::from("Length")),
                     Some(&Object::Numeric(Number::Integer(10)))
