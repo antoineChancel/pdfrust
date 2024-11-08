@@ -1,5 +1,5 @@
+use crate::tokenizer::{Token, Tokenizer};
 use std::collections::HashMap;
-use crate::tokenizer::{Tokenizer, Token};
 
 struct ToUnicodeCMap(HashMap<usize, char>);
 
@@ -7,28 +7,38 @@ impl From<String> for ToUnicodeCMap {
     fn from(value: String) -> Self {
         let mut tokenizer = Tokenizer::new(value.as_bytes(), 0).peekable();
         for t in tokenizer.by_ref() {
-            if let Token::String(s) = t { if s.to_vec() == b"beginbfchar" { break; } }
-        };
+            if let Token::String(s) = t {
+                if s.to_vec() == b"beginbfchar" {
+                    break;
+                }
+            }
+        }
         let mut cmap = HashMap::new();
         loop {
             // end condition
-            if tokenizer.peek() == Some(&Token::String(b"endbfchar".to_vec())) { break; }
+            if tokenizer.peek() == Some(&Token::String(b"endbfchar".to_vec())) {
+                break;
+            }
 
             // key number in hex
             let key = match tokenizer.next() {
-                Some(Token::HexString(x)) => usize::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap(),
+                Some(Token::HexString(x)) => {
+                    usize::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap()
+                }
                 Some(t) => panic!("CMap key should be an hex string, found {t:?}"),
-                None => panic!("CMap unreadable because end of cmap file is reached")
+                None => panic!("CMap unreadable because end of cmap file is reached"),
             };
 
             // unicode character encoded in hex
             let val = match tokenizer.next() {
-                Some(Token::HexString(x)) => char::from(u8::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap()),
+                Some(Token::HexString(x)) => {
+                    char::from(u8::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap())
+                }
                 Some(t) => panic!("CMap val should be an hex string, found {t:?}"),
-                None => panic!("CMap unreadable because end of cmap file is reached")
+                None => panic!("CMap unreadable because end of cmap file is reached"),
             };
             cmap.insert(key, val);
-        };
+        }
         ToUnicodeCMap(cmap)
     }
 }

@@ -3,6 +3,7 @@ use std::fmt::Display;
 use xref::XrefTable;
 
 pub mod body;
+pub mod cmap;
 pub mod filters;
 pub mod info;
 pub mod object;
@@ -10,7 +11,6 @@ pub mod text;
 pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
-pub mod cmap;
 
 #[derive(Debug, Clone)]
 pub enum Extract {
