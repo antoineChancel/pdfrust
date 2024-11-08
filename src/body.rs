@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    filters,
+    filters::{self, flate_decode},
     object::{Dictionary, Name, Number, Object},
     text,
     xref::XrefTable,
@@ -113,7 +113,7 @@ impl Display for Font {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.to_unicode
+            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, flate_decode(self.to_unicode.as_ref().unwrap().as_slice())
         )
     }
 }

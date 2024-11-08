@@ -151,7 +151,7 @@ impl<'a> Iterator for Lemmatizer<'a> {
 }
 
 #[derive(Clone)]
-struct Tokenizer<'a> {
+pub struct Tokenizer<'a> {
     bytes: &'a [u8],
     byte: Peekable<Iter<'a, u8>>,
 }

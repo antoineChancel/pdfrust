@@ -10,6 +10,7 @@ pub mod text;
 pub mod tokenizer;
 pub mod trailer;
 pub mod xref;
+pub mod cmap;
 
 #[derive(Debug, Clone)]
 pub enum Extract {
