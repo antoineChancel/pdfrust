@@ -1,7 +1,8 @@
 use crate::tokenizer::{Token, Tokenizer};
 use std::collections::HashMap;
 
-struct ToUnicodeCMap(HashMap<usize, char>);
+#[derive(Debug, PartialEq)]
+pub struct ToUnicodeCMap(HashMap<usize, char>);
 
 impl From<String> for ToUnicodeCMap {
     fn from(value: String) -> Self {

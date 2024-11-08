@@ -1,12 +1,16 @@
+use core::panic;
 use std::{collections::HashMap, fmt::Display};
 
 use crate::{
-    filters::{self, flate_decode},
+    filters::flate_decode,
+    cmap::ToUnicodeCMap,
     object::{Dictionary, Name, Number, Object},
     text,
     xref::XrefTable,
     Extract,
 };
+
+use crate::object::Stream as StreamObject;
 
 type Rectangle = [Number; 4];
 #[derive(Debug, PartialEq)]
@@ -62,10 +66,24 @@ struct Stream(StreamDictionary, StreamContent);
 impl Stream {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
         let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
-            Object::Stream(dict, stream) => (StreamDictionary::from(dict), stream),
+            Object::Stream(StreamObject{ header, bytes }) => (StreamDictionary::from(header), bytes),
             _ => panic!("Stream should be a dictionary"),
         };
         Stream(dict, stream)
+    }
+
+    pub fn get_data(&self) -> String {
+        match &self.0.filter {
+            Some(Filter::FlateDecode) => flate_decode(&self.1),
+            // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
+            None => std::str::from_utf8(&self.1).unwrap().to_string()
+        }
+    }
+}
+
+impl From<StreamObject<'_>> for Stream {
+    fn from(object: StreamObject<'_>) -> Self {
+        Stream(StreamDictionary::from(object.header), object.bytes)
     }
 }
 
@@ -106,14 +124,14 @@ struct Font {
     base_font: Name,
     first_char: Option<Number>,
     last_char: Option<Number>,
-    to_unicode: Option<StreamContent>,
+    to_unicode: Option<ToUnicodeCMap>,
 }
 
 impl Display for Font {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, flate_decode(self.to_unicode.as_ref().unwrap().as_slice())
+            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.to_unicode
         )
     }
 }
@@ -157,7 +175,7 @@ impl From<Dictionary<'_>> for Font {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
                         Some(address) => match Object::new(bytes, address, xref) {
-                            Object::Stream(_, stream) => Some(StreamContent::from(stream)),
+                            Object::Stream(stream) => Some(ToUnicodeCMap::from(Stream::from(stream).get_data())),
                             o => panic!("ToUnicode should be a stream object, found {o:?}"),
                         },
                         None => panic!("ToUnicode stream object not found in xref table"),
@@ -435,10 +453,7 @@ impl Page {
     pub fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => match stream.0.filter {
-                Some(Filter::FlateDecode) => filters::flate_decode(&stream.1),
-                None => String::from_utf8(stream.1.clone()).unwrap(),
-            },
+            Some(stream) => stream.get_data(),
             None => panic!("Contents should not be empty"),
         }
     }

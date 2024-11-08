@@ -10,9 +10,21 @@ pub type Array<'a> = Vec<Object<'a>>;
 pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 
 #[derive(Debug, PartialEq, Clone)]
+pub struct Stream<'a> {
+    pub header: Dictionary<'a>,
+    pub bytes: Vec<u8>
+}
+
+impl<'a> Stream<'a> {
+    fn new(header: Dictionary<'a>, bytes: Vec<u8> ) -> Self {
+        Stream { header, bytes }
+    }
+}
+
+#[derive(Debug, PartialEq, Clone)]
 pub enum Object<'a> {
     Dictionary(Dictionary<'a>),
-    Stream(Dictionary<'a>, Vec<u8>),
+    Stream(Stream<'a>),
     Array(Array<'a>),
     Name(Name),
     String(String),
@@ -120,7 +132,7 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
                                 _ => panic!("Stream dictionary should have a Length key, {dict:?}"),
                             };
                             // collect next n bytes from the stream
-                            Object::Stream(dict, tokenizer.next_n(length as usize))
+                            Object::Stream(Stream::new(dict, tokenizer.next_n(length as usize)))
                         }
                         _ => Object::Dictionary(dict),
                     };
@@ -299,7 +311,7 @@ mod tests {
         let bytes = b"4 0 obj\n<<\n  /Length 10\n>>\nstream\n1234567890\nendstream\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {
-            Ok(Object::Stream(d, s)) => {
+            Ok(Object::Stream(Stream { header: d, bytes: s })) => {
                 assert_eq!(
                     d.get(&String::from("Length")),
                     Some(&Object::Numeric(Number::Integer(10)))

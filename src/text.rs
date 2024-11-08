@@ -27,6 +27,7 @@ enum StreamToken {
     Name(String),
     Numeric(f32),
     Text(String),
+    HexString(String),
     Other(String),
 }
 
@@ -67,10 +68,18 @@ impl Iterator for Stream<'_> {
                     Delimiter::Array => match c {
                         b'[' => return Some(StreamToken::BeginArray),
                         b']' => return Some(StreamToken::EndArray),
-                        b'<' => return Some(StreamToken::Other("<".to_string())),
+                        b'<' => {
+                            for c in self.0.by_ref() {
+                                match CharacterSet::from(c) {
+                                    CharacterSet::WhiteSpace(_) => break,
+                                    CharacterSet::Regular(c) => buf.push(c as char),
+                                    CharacterSet::Delimiter(_) => break,
+                                }
+                            }
+                            return Some(StreamToken::HexString(buf));
+                        }
                         b'{' => return Some(StreamToken::Other("{".to_string())),
                         b'}' => return Some(StreamToken::Other("}".to_string())),
-                        b'>' => return Some(StreamToken::Other(">".to_string())),
                         c => panic!("Invalid character {}", *c as char),
                     },
                     _ => panic!("Invalid character"),
@@ -276,6 +285,7 @@ impl StreamContent {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -308,6 +318,23 @@ mod tests {
         );
         assert_eq!(stream_iter.next(), Some(StreamToken::EndText));
         assert_eq!(stream_iter.next(), None);
+    }
+
+    #[test]
+    fn test_stream_hexstrings() {
+        let raw = b"[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ".as_slice();
+        let mut stream = Stream::from(raw);
+        assert_eq!(stream.next(), Some(StreamToken::BeginArray));
+        assert_eq!(
+            stream.next(),
+            Some(StreamToken::HexString("18".to_string()))
+        );
+        assert_eq!(stream.next(), Some(StreamToken::Numeric(14.0)));
+        assert_eq!(
+            stream.next(),
+            Some(StreamToken::HexString("0D".to_string()))
+        );
+        assert_eq!(stream.next(), Some(StreamToken::Numeric(2.0)));
     }
 
     #[test]
