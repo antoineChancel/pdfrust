@@ -251,17 +251,17 @@ impl From<Dictionary<'_>> for Resources {
 }
 
 #[derive(Debug, PartialEq)]
-pub struct PageTreeNodeRoot {
+pub struct PageTreeNode {
     kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
     count: Number,           // Number of leaf nodes
     // Inheritables (cf page 149)
     rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
-    crop_box: Option<Rectangle>, // Rectangle
+    crop_box: Option<Rectangle>, // Rectangle, optional + inheritable
     media_box: Option<Rectangle>, // Rectangle
-    resources: Option<Resources>, // Resource dictionary
+    resources: Option<Resources>, // Resource dictionary, inheritable
 }
 
-impl PageTreeNodeRoot {
+impl PageTreeNode {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
@@ -278,9 +278,9 @@ impl PageTreeNodeRoot {
     }
 }
 
-impl From<Dictionary<'_>> for PageTreeNodeRoot {
+impl From<Dictionary<'_>> for PageTreeNode {
     fn from(value: Dictionary) -> Self {
-        PageTreeNodeRoot {
+        PageTreeNode {
             kids: match value.get("Kids").unwrap() {
                 Object::Array(arr) => arr
                     .iter()
@@ -358,56 +358,6 @@ impl From<Dictionary<'_>> for PageTreeNodeRoot {
                 }
                 None => None,
                 _ => panic!("Resources should be an indirect object"),
-            },
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
-pub struct PageTreeNode {
-    // parent: PageTreeParent<'a>, // The page tree node's parent
-    kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Number,           // Number of leaf nodes
-}
-
-impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
-            Object::Dictionary(dict) => Self::from(dict),
-            _ => panic!("Trailer should be a dictionary"),
-        }
-    }
-
-    pub fn extract(&self, e: Extract) -> String {
-        self.kids
-            .iter()
-            .map(|kid| kid.extract(e.clone()))
-            .collect::<Vec<String>>()
-            .join("\n")
-    }
-}
-
-impl From<Dictionary<'_>> for PageTreeNode {
-    fn from(value: Dictionary) -> Self {
-        PageTreeNode {
-            kids: match value.get("Kids").unwrap() {
-                Object::Array(arr) => arr
-                    .iter()
-                    .map(|kid| match kid {
-                        Object::Ref((obj, gen), xref, bytes) => {
-                            match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                Some(address) => PageTreeKids::new(bytes, address, xref),
-                                None => panic!("Kid not found in xref table"),
-                            }
-                        }
-                        _ => panic!("Kid should be an indirect object"),
-                    })
-                    .collect(),
-                _ => panic!("Kids should be an array"),
-            },
-            count: match value.get("Count").unwrap() {
-                Object::Numeric(n) => n.clone(),
-                _ => panic!("Count should be a numeric"),
             },
         }
     }
@@ -523,7 +473,7 @@ impl From<Dictionary<'_>> for Page {
 pub struct Catalog {
     // The page tree node that is the root of the document’s page tree
     // Must be an indirect reference
-    pub pages: Option<PageTreeNodeRoot>,
+    pub pages: Option<PageTreeNode>,
 }
 
 impl Catalog {
@@ -548,7 +498,7 @@ impl From<Dictionary<'_>> for Catalog {
             pages: match value.get("Pages").unwrap() {
                 Object::Ref((obj, gen), xref, bytes) => xref
                     .get_and_fix(&(*obj, *gen), bytes)
-                    .map(|address| PageTreeNodeRoot::new(bytes, address, xref)),
+                    .map(|address| PageTreeNode::new(bytes, address, xref)),
                 _ => panic!("Pages should be an indirect object"),
             },
         }
