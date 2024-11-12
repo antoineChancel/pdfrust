@@ -1,5 +1,5 @@
 use core::panic;
-use std::{collections::HashMap, fmt::Display};
+use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::{Rc, Weak}};
 
 use crate::{
     cmap::ToUnicodeCMap,
@@ -109,10 +109,10 @@ impl From<StreamObject<'_>> for Stream {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub enum PageTreeKids {
     Page(Page),
-    PageTreeNode(PageTreeNode),
+    PageTreeNode(Rc<PageTreeNode>),
 }
 
 impl PageTreeKids {
@@ -270,22 +270,30 @@ impl From<Dictionary<'_>> for Resources {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct PageTreeNode {
-    parent: Option<Box<PageTreeNode>>, // todo()
-    kids: Vec<PageTreeKids>,           // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Number,                     // Number of leaf nodes
+    parent: RefCell<Weak<PageTreeNode>>,         // PageTreeNode parent
+    kids: Vec<PageTreeKids>,            // PageTreeNode kids can be a Page or a PageTreeNode
+    count: Number,                      // Number of leaf nodes
     // Inheritables (cf page 149)
-    rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
-    crop_box: Option<Rectangle>, // Rectangle, optional + inheritable
-    media_box: Option<Rectangle>, // Rectangle, inheritable
-    resources: Option<Resources>, // Resource dictionary, inheritable
+    rotate: Option<Number>,             // Number of degrees by which the page should be rotated clockwise when displayeds
+    crop_box: Option<Rectangle>,        // CropBox Rectangle
+    media_box: Option<Rectangle>,       // MediaBox Rectangle
+    resources: Option<Resources>,       // Resource dictionary
 }
 
 impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Rc<Self> {
         match Object::new(bytes, curr_idx, xref) {
-            Object::Dictionary(dict) => Self::from(dict),
+            Object::Dictionary(dict) => {
+                let page_tree_node = Rc::new(Self::from(dict));
+                // update parent weak reference of children
+                page_tree_node.kids.iter().for_each(|k| match k {
+                    PageTreeKids::Page(p) => *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node),
+                    PageTreeKids::PageTreeNode(p) => *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node),
+                });
+                page_tree_node
+            },
             _ => panic!("Trailer should be a dictionary"),
         }
     }
@@ -302,7 +310,7 @@ impl PageTreeNode {
 impl From<Dictionary<'_>> for PageTreeNode {
     fn from(value: Dictionary) -> Self {
         PageTreeNode {
-            parent: None,
+            parent: RefCell::new(Weak::new()),
             kids: match value.get("Kids").unwrap() {
                 Object::Array(arr) => arr
                     .iter()
@@ -351,14 +359,14 @@ impl From<Dictionary<'_>> for PageTreeNode {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Page {
-    parent: Option<Box<PageTreeNode>>, // The page tree node's parent
-    last_modified: Option<String>,     // Date and time of last modification
-    resources: Resources,              // Resource dictionary (inheritable from PageTreeNode)
-    media_box: Option<Rectangle>,      // MediaBox rectangle (inheritable from PageTreeNode)
-    crop_box: Option<Rectangle>,       // CropBox rectangle (inheritable from PageTreeNode)
-    contents: Option<Stream>,          // Page content
+    parent: RefCell<Weak<PageTreeNode>>,    // Page leaf parent
+    last_modified: Option<String>,          // Date and time of last modification
+    resources: Resources,                   // Resource dictionary (inheritable from PageTreeNode)
+    media_box: Option<Rectangle>,           // MediaBox rectangle (inheritable from PageTreeNode)
+    crop_box: Option<Rectangle>,            // CropBox rectangle (inheritable from PageTreeNode)
+    contents: Option<Stream>,               // Page content
 }
 
 impl Page {
@@ -405,7 +413,7 @@ impl Page {
 impl From<Dictionary<'_>> for Page {
     fn from(value: Dictionary) -> Self {
         Page {
-            parent: None, // TODO: to be implemented
+            parent: RefCell::new(Weak::new()),
             last_modified: match value.get("LastModified") {
                 Some(Object::String(s)) => Some(s.clone()),
                 None => None,
@@ -447,11 +455,11 @@ impl From<Dictionary<'_>> for Page {
 
 // Document Catalog
 // Defined in page 139;  commented is to be implemented
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Catalog {
     // The page tree node that is the root of the document’s page tree
     // Must be an indirect reference
-    pub pages: Option<PageTreeNode>,
+    pub pages: Option<Rc<PageTreeNode>>,
 }
 
 impl Catalog {
@@ -491,6 +499,6 @@ mod tests {
     #[test]
     fn test_catalog() {
         let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XrefTable::new());
-        assert_eq!(catalog, Catalog { pages: None })
+        assert!(catalog.pages.is_none())
     }
 }

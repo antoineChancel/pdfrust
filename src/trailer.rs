@@ -7,7 +7,7 @@ use crate::{
 };
 
 // Trailer structure
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct Trailer<'a> {
     // Total number of entries in the file’s cross-reference table
     size: Number,
@@ -87,17 +87,12 @@ mod test {
     fn read_trailer_multi_lines() {
         let bytes = b"<<\n  /Size 6\n  /Root 1 0 R\n>>".as_slice();
         let xref = XrefTable::new();
-        assert_eq!(
-            Trailer::new(bytes, 0, &xref),
-            Trailer {
-                size: Number::Integer(6),
-                root: None,
-                info: None,
-                prev: None,
-                encrypt: None,
-                id: None
-            }
-        );
+        let trailer = Trailer::new(bytes, 0, &xref);
+        assert_eq!(trailer.size, Number::Integer(6));
+        assert!(trailer.root.is_none());
+        assert!(trailer.info.is_none());
+        assert!(trailer.prev.is_none());
+        assert!(trailer.encrypt.is_none());
     }
 
     #[test]
@@ -107,19 +102,15 @@ mod test {
             b"<< /Size 26 /Root 13 0 R /Info 1 0 R /ID [ <4e949515aaf132498f650e7bde6cdc2f>\n<4e949515aaf132498f650e7bde6cdc2f> ] >>"
                 .as_slice();
         let xref = XrefTable::new();
-        assert_eq!(
-            Trailer::new(bytes, 0, &xref),
-            Trailer {
-                size: Number::Integer(26),
-                root: None,
-                info: None,
-                prev: None,
-                encrypt: None,
-                id: Some(vec![
-                    Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string()),
-                    Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string())
-                ])
-            }
-        );
+        let trailer = Trailer::new(bytes, 0, &xref);
+        assert_eq!(trailer.size, Number::Integer(26));
+        assert!(trailer.root.is_none());
+        assert!(trailer.info.is_none());
+        assert!(trailer.prev.is_none());
+        assert!(trailer.encrypt.is_none());
+        assert_eq!(trailer.id, Some(vec![
+            Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string()),
+            Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string())
+        ]));
     }
 }
