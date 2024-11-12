@@ -4,7 +4,7 @@ use std::{collections::HashMap, fmt::Display};
 use crate::{
     cmap::ToUnicodeCMap,
     filters::flate_decode,
-    object::{Dictionary, Name, Number, Object},
+    object::{Array, Dictionary, Name, Number, Object},
     text,
     xref::XrefTable,
     Extract,
@@ -12,7 +12,27 @@ use crate::{
 
 use crate::object::Stream as StreamObject;
 
-type Rectangle = [Number; 4];
+#[derive(Debug, PartialEq)]
+pub struct Rectangle([Number; 4]);
+
+impl From<Array<'_>> for Rectangle {
+    fn from(array: Array) -> Self {
+        if array.len() != 4 {
+            panic!("PDF rectangle contains 4 values, found {}", array.len())
+        };
+        let value: [Number; 4] = array
+            .iter()
+            .map(|x| match x {
+                Object::Numeric(n) => n.clone(),
+                o => panic!("PDF rectangle values are numbers, found {o:?}"),
+            })
+            .collect::<Vec<Number>>()
+            .try_into()
+            .unwrap();
+        Rectangle(value)
+    }
+}
+
 #[derive(Debug, PartialEq)]
 enum Filter {
     FlateDecode,
@@ -252,12 +272,13 @@ impl From<Dictionary<'_>> for Resources {
 
 #[derive(Debug, PartialEq)]
 pub struct PageTreeNode {
-    kids: Vec<PageTreeKids>, // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Number,           // Number of leaf nodes
+    parent: Option<Box<PageTreeNode>>, // todo()
+    kids: Vec<PageTreeKids>,           // PageTreeNode kids can be a Page or a PageTreeNode
+    count: Number,                     // Number of leaf nodes
     // Inheritables (cf page 149)
     rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
     crop_box: Option<Rectangle>, // Rectangle, optional + inheritable
-    media_box: Option<Rectangle>, // Rectangle
+    media_box: Option<Rectangle>, // Rectangle, inheritable
     resources: Option<Resources>, // Resource dictionary, inheritable
 }
 
@@ -281,6 +302,7 @@ impl PageTreeNode {
 impl From<Dictionary<'_>> for PageTreeNode {
     fn from(value: Dictionary) -> Self {
         PageTreeNode {
+            parent: None,
             kids: match value.get("Kids").unwrap() {
                 Object::Array(arr) => arr
                     .iter()
@@ -306,46 +328,12 @@ impl From<Dictionary<'_>> for PageTreeNode {
                 _ => panic!("Rotate should be a numeric"),
             },
             crop_box: match value.get("CropBox") {
-                Some(Object::Array(arr)) => Some([
-                    match &arr[0] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("CropBox should be an array of numeric"),
-                    },
-                    match &arr[1] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("CropBox should be an array of numeric"),
-                    },
-                    match &arr[2] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("CropBox should be an array of numeric"),
-                    },
-                    match &arr[3] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("CropBox should be an array of numeric"),
-                    },
-                ]),
+                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
                 None => None,
                 _ => panic!("CropBox should be an array"),
             },
             media_box: match value.get("MediaBox") {
-                Some(Object::Array(arr)) => Some([
-                    match &arr[0] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("MediaBox should be an array of numeric"),
-                    },
-                    match &arr[1] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("MediaBox should be an array of numeric"),
-                    },
-                    match &arr[2] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("MediaBox should be an array of numeric"),
-                    },
-                    match &arr[3] {
-                        Object::Numeric(n) => n.clone(),
-                        _ => panic!("MediaBox should be an array of numeric"),
-                    },
-                ]),
+                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
                 None => None,
                 _ => panic!("MediaBox should be an array"),
             },
@@ -365,11 +353,12 @@ impl From<Dictionary<'_>> for PageTreeNode {
 
 #[derive(Debug, PartialEq)]
 pub struct Page {
-    // parent: PageTreeParent<'a>, // The page tree node's parent
-    last_modified: Option<String>, // Date and time of last modification
-    resources: Resources,          // Resource dictionary
-    media_box: Option<Rectangle>,  //rectangle
-    contents: Option<Stream>,
+    parent: Option<Box<PageTreeNode>>, // The page tree node's parent
+    last_modified: Option<String>,     // Date and time of last modification
+    resources: Resources,              // Resource dictionary (inheritable from PageTreeNode)
+    media_box: Option<Rectangle>,      // MediaBox rectangle (inheritable from PageTreeNode)
+    crop_box: Option<Rectangle>,       // CropBox rectangle (inheritable from PageTreeNode)
+    contents: Option<Stream>,          // Page content
 }
 
 impl Page {
@@ -416,6 +405,7 @@ impl Page {
 impl From<Dictionary<'_>> for Page {
     fn from(value: Dictionary) -> Self {
         Page {
+            parent: None, // TODO: to be implemented
             last_modified: match value.get("LastModified") {
                 Some(Object::String(s)) => Some(s.clone()),
                 None => None,
@@ -432,25 +422,13 @@ impl From<Dictionary<'_>> for Page {
                 t => panic!("Resources should be an dictionary object {t:?}"),
             },
             media_box: match value.get("MediaBox") {
-                Some(Object::Array(arr)) => Some([
-                    match &arr[0] {
-                        Object::Numeric(n) => n.clone(),
-                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
-                    },
-                    match &arr[1] {
-                        Object::Numeric(n) => n.clone(),
-                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
-                    },
-                    match &arr[2] {
-                        Object::Numeric(n) => n.clone(),
-                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
-                    },
-                    match &arr[3] {
-                        Object::Numeric(n) => n.clone(),
-                        o => panic!("MediaBox should be an array of numeric, found {o:?}"),
-                    },
-                ]),
+                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
                 Some(a) => panic!("MediaBox should be an array; found {a:?}"),
+                None => None,
+            },
+            crop_box: match value.get("CropBox") {
+                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
+                Some(a) => panic!("CropBox should be an array; found {a:?}"),
                 None => None,
             },
             contents: match value.get("Contents") {
