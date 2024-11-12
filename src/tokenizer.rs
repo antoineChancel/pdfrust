@@ -175,11 +175,7 @@ impl<'a> Tokenizer<'a> {
                 None => panic!("End of stream reached"),
             };
         }
-        self.byte
-            .clone()
-            .take(length)
-            .map(|&x| x)
-            .collect::<Vec<u8>>()
+        self.byte.clone().take(length).copied().collect::<Vec<u8>>()
     }
 }
 
@@ -257,7 +253,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                         // nested parentesis counters
                         let mut opened_parathesis: u8 = 1;
                         let mut closed_parathesis: u8 = 0;
-                        while let Some(cursor) = self.byte.next() {
+                        for cursor in self.byte.by_ref() {
                             if let CharacterSet::Delimiter(Delimiter::String) =
                                 CharacterSet::from(cursor)
                             {
@@ -296,10 +292,11 @@ impl<'a> Iterator for Tokenizer<'a> {
                         let numeric = std::str::from_utf8(&buf).unwrap();
                         match numeric.parse::<i32>() {
                             Ok(n) => return Some(Token::Numeric(Number::Integer(n))),
-                            Err(_) => match numeric.parse::<f32>() {
-                                Ok(n) => return Some(Token::Numeric(Number::Real(n))),
-                                Err(_) => (),
-                            },
+                            Err(_) => {
+                                if let Ok(n) = numeric.parse::<f32>() {
+                                    return Some(Token::Numeric(Number::Real(n)));
+                                }
+                            }
                         }
                     };
                     match buf.as_slice() {
