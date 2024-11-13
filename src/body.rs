@@ -1,5 +1,10 @@
 use core::panic;
-use std::{cell::RefCell, collections::HashMap, fmt::Display, rc::{Rc, Weak}};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    fmt::Display,
+    rc::{Rc, Weak},
+};
 
 use crate::{
     cmap::ToUnicodeCMap,
@@ -139,7 +144,7 @@ impl PageTreeKids {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Font {
     subtype: Name,
     name: Option<Name>,
@@ -212,8 +217,20 @@ impl From<Dictionary<'_>> for Font {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct FontMap(HashMap<Name, Font>);
+
+impl Display for FontMap {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let fonts = self
+            .0
+            .values()
+            .map(|font| format!("{font}\n"))
+            .collect::<Vec<String>>()
+            .join("\n");
+        write!(f, "{fonts}")
+    }
+}
 
 impl From<Dictionary<'_>> for FontMap {
     fn from(value: Dictionary) -> Self {
@@ -236,7 +253,7 @@ impl From<Dictionary<'_>> for FontMap {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Resources {
     font: Option<FontMap>,
 }
@@ -272,14 +289,14 @@ impl From<Dictionary<'_>> for Resources {
 
 #[derive(Debug)]
 pub struct PageTreeNode {
-    parent: RefCell<Weak<PageTreeNode>>,         // PageTreeNode parent
-    kids: Vec<PageTreeKids>,            // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Number,                      // Number of leaf nodes
+    parent: RefCell<Weak<PageTreeNode>>, // PageTreeNode parent
+    kids: Vec<PageTreeKids>,             // PageTreeNode kids can be a Page or a PageTreeNode
+    count: Number,                       // Number of leaf nodes
     // Inheritables (cf page 149)
-    rotate: Option<Number>,             // Number of degrees by which the page should be rotated clockwise when displayeds
-    crop_box: Option<Rectangle>,        // CropBox Rectangle
-    media_box: Option<Rectangle>,       // MediaBox Rectangle
-    resources: Option<Resources>,       // Resource dictionary
+    rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
+    crop_box: Option<Rectangle>, // CropBox Rectangle
+    media_box: Option<Rectangle>, // MediaBox Rectangle
+    resources: Option<Resources>, // Resource dictionary
 }
 
 impl PageTreeNode {
@@ -289,12 +306,26 @@ impl PageTreeNode {
                 let page_tree_node = Rc::new(Self::from(dict));
                 // update parent weak reference of children
                 page_tree_node.kids.iter().for_each(|k| match k {
-                    PageTreeKids::Page(p) => *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node),
-                    PageTreeKids::PageTreeNode(p) => *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node),
+                    PageTreeKids::Page(p) => {
+                        *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node)
+                    }
+                    PageTreeKids::PageTreeNode(p) => {
+                        *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node)
+                    }
                 });
                 page_tree_node
-            },
+            }
             _ => panic!("Trailer should be a dictionary"),
+        }
+    }
+
+    fn get_resources(&self) -> Option<Resources> {
+        match &self.resources {
+            Some(r) => Some(r.clone()), // TODO : improve with smart pointer instead of cloning
+            None => match self.parent.borrow().upgrade() {
+                Some(p) => p.get_resources(),
+                None => None,
+            },
         }
     }
 
@@ -361,12 +392,12 @@ impl From<Dictionary<'_>> for PageTreeNode {
 
 #[derive(Debug)]
 pub struct Page {
-    parent: RefCell<Weak<PageTreeNode>>,    // Page leaf parent
-    last_modified: Option<String>,          // Date and time of last modification
-    resources: Resources,                   // Resource dictionary (inheritable from PageTreeNode)
-    media_box: Option<Rectangle>,           // MediaBox rectangle (inheritable from PageTreeNode)
-    crop_box: Option<Rectangle>,            // CropBox rectangle (inheritable from PageTreeNode)
-    contents: Option<Stream>,               // Page content
+    parent: RefCell<Weak<PageTreeNode>>, // Page leaf parent
+    last_modified: Option<String>,       // Date and time of last modification
+    resources: Option<Resources>,        // Resource dictionary (inheritable from PageTreeNode)
+    media_box: Option<Rectangle>,        // MediaBox rectangle (inheritable from PageTreeNode)
+    crop_box: Option<Rectangle>,         // CropBox rectangle (inheritable from PageTreeNode)
+    contents: Option<Stream>,            // Page content
 }
 
 impl Page {
@@ -374,6 +405,20 @@ impl Page {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
+        }
+    }
+
+    // Get resources from Page or parent if missing
+    pub fn get_resources(&self) -> Box<Resources> {
+        match &self.resources {
+            Some(r) => Box::new(r.clone()),
+            None => match self.parent.borrow().upgrade() {
+                Some(p) => match p.get_resources() {
+                    Some(r) => return Box::new(r),
+                    None => panic!("Resources not found for current Page and in parent tree"),
+                },
+                None => panic!("Unable to retrieve Page Resource, current page with no parent"),
+            },
         }
     }
 
@@ -386,14 +431,9 @@ impl Page {
     }
 
     pub fn extract_font(&self) -> String {
-        match &self.resources.font {
-            Some(font_map) => font_map
-                .0
-                .values()
-                .map(|font| format!("{font}\n"))
-                .collect::<Vec<String>>()
-                .join("\n"),
-            None => panic!("Font should not be empty"),
+        match self.get_resources().font {
+            Some(font_map) => font_map.to_string(),
+            None => panic!("Missing font in current page resources"),
         }
     }
 
@@ -420,10 +460,10 @@ impl From<Dictionary<'_>> for Page {
                 _ => panic!("LastModified should be a string"),
             },
             resources: match value.get("Resources").unwrap() {
-                Object::Dictionary(t) => Resources::from(t.clone()),
+                Object::Dictionary(t) => Some(Resources::from(t.clone())),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Resources::new(bytes, address, xref),
+                        Some(address) => Some(Resources::new(bytes, address, xref)),
                         None => panic!("Resource dictionnary address not found in xref keys"),
                     }
                 }

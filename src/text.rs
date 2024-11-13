@@ -222,9 +222,12 @@ impl<'a> From<&mut Stream<'a>> for Text {
                     Operator::TJ => {
                         text.t_upper_j = Some(
                             buf.iter()
-                                .filter(|t| matches!(t, StreamToken::Text(_)))
+                                .filter(|t| {
+                                    matches!(t, StreamToken::Text(_) | StreamToken::HexString(_))
+                                })
                                 .map(|f| match f {
                                     StreamToken::Text(t) => t.clone(),
+                                    StreamToken::HexString(t) => t.clone() + " ",
                                     _ => panic!("Invalid token"),
                                 })
                                 .collect(),

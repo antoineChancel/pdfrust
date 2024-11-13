@@ -108,9 +108,12 @@ mod test {
         assert!(trailer.info.is_none());
         assert!(trailer.prev.is_none());
         assert!(trailer.encrypt.is_none());
-        assert_eq!(trailer.id, Some(vec![
-            Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string()),
-            Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string())
-        ]));
+        assert_eq!(
+            trailer.id,
+            Some(vec![
+                Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string()),
+                Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string())
+            ])
+        );
     }
 }
