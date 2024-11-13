@@ -217,14 +217,8 @@ impl From<Dictionary<'_>> for Font {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Default, Debug, PartialEq, Clone)]
 pub struct FontMap(pub HashMap<Name, Font>);
-
-impl Default for FontMap {
-    fn default() -> Self {
-        Self(HashMap::new())
-    }
-}
 
 impl Display for FontMap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -420,7 +414,7 @@ impl Page {
             Some(r) => Box::new(r.clone()),
             None => match self.parent.borrow().upgrade() {
                 Some(p) => match p.get_resources() {
-                    Some(r) => return Box::new(r),
+                    Some(r) => Box::new(r),
                     None => panic!("Resources not found for current Page and in parent tree"),
                 },
                 None => panic!("Unable to retrieve Page Resource, current page with no parent"),
