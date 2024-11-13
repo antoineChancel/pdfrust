@@ -283,7 +283,6 @@ impl From<&[u8]> for StreamContent {
 }
 
 impl StreamContent {
-
     pub fn decode_hex(hexstring: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..hexstring.len())
             .step_by(2)
