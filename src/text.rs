@@ -1,7 +1,10 @@
 use core::iter::Iterator;
-use std::{iter::Peekable, slice::Iter};
+use std::{iter::Peekable, num::ParseIntError, slice::Iter};
 
-use crate::tokenizer::{CharacterSet, Delimiter};
+use crate::{
+    body::FontMap,
+    tokenizer::{CharacterSet, Delimiter},
+};
 struct Stream<'a>(Peekable<Iter<'a, u8>>);
 
 #[derive(Debug, PartialEq)]
@@ -26,7 +29,7 @@ enum StreamToken {
     Operator(Operator),
     Name(String),
     Numeric(f32),
-    Text(String),
+    LitteralString(String),
     HexString(String),
     Other(String),
 }
@@ -53,7 +56,7 @@ impl Iterator for Stream<'_> {
                                 _ => buf.push(*c as char),
                             }
                         }
-                        return Some(StreamToken::Text(buf));
+                        return Some(StreamToken::LitteralString(buf));
                     }
                     Delimiter::Name => {
                         for c in self.0.by_ref() {
@@ -118,13 +121,19 @@ impl Iterator for Stream<'_> {
 }
 
 #[derive(Debug, PartialEq)]
+enum PdfString {
+    Litteral(String),
+    HexString(String),
+}
+
+#[derive(Debug, PartialEq)]
 struct Text {
     t_upper_d: Option<(f32, f32)>, // Move text position and set leading
     t_d: Option<(f32, f32)>,       // Move text position
     t_m: Option<(f32, f32, f32, f32, f32, f32)>, // Set text matrix and text line matrix
     t_f: Option<(String, f32)>,    // Set text font and size
     t_j: Option<String>,           // Show text
-    t_upper_j: Option<Vec<String>>, // Show text, allowing individual glyph positioning
+    t_upper_j: Option<Vec<PdfString>>, // Show text, allowing individual glyph positioning
 }
 
 impl<'a> From<&mut Stream<'a>> for Text {
@@ -214,7 +223,7 @@ impl<'a> From<&mut Stream<'a>> for Text {
                     }
                     Operator::Tj => {
                         text.t_j = Some(match &buf[0] {
-                            StreamToken::Text(n) => n.clone(),
+                            StreamToken::LitteralString(n) => n.clone(),
                             _ => panic!("Invalid token"),
                         });
                         buf.clear();
@@ -223,11 +232,16 @@ impl<'a> From<&mut Stream<'a>> for Text {
                         text.t_upper_j = Some(
                             buf.iter()
                                 .filter(|t| {
-                                    matches!(t, StreamToken::Text(_) | StreamToken::HexString(_))
+                                    matches!(
+                                        t,
+                                        StreamToken::LitteralString(_) | StreamToken::HexString(_)
+                                    )
                                 })
                                 .map(|f| match f {
-                                    StreamToken::Text(t) => t.clone(),
-                                    StreamToken::HexString(t) => t.clone() + " ",
+                                    StreamToken::LitteralString(t) => {
+                                        PdfString::Litteral(t.clone())
+                                    }
+                                    StreamToken::HexString(t) => PdfString::HexString(t.clone()),
                                     _ => panic!("Invalid token"),
                                 })
                                 .collect(),
@@ -269,15 +283,62 @@ impl From<&[u8]> for StreamContent {
 }
 
 impl StreamContent {
-    pub fn get_text(&self) -> String {
+
+    pub fn decode_hex(hexstring: &str) -> Result<Vec<u8>, ParseIntError> {
+        (0..hexstring.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&hexstring[i..i + 2], 16))
+            .collect()
+    }
+
+    pub fn get_text(&self, fontmap: FontMap) -> String {
         self.text
             .iter()
             .map(|t| {
-                if let Some(ref v) = t.t_upper_j {
-                    return v.join("") + "\n";
+                // collect font informations for the current text object content
+                let font = match &t.t_f {
+                    Some(text_font) => fontmap.0.get(&text_font.0),
+                    None => None,
                 };
-                match t.t_j {
-                    Some(ref s) => s.clone() + "\n",
+                if let Some(ref v) = t.t_upper_j {
+                    return v
+                        .iter()
+                        .map(|elem| match elem {
+                            PdfString::Litteral(s) => s.clone(),
+                            PdfString::HexString(s) => {
+                                let hex_bytes = StreamContent::decode_hex(s).expect("Unable to decode hexstring to bytes");
+                                let mut s= String::new();
+                                match font {
+                                    Some(f) => {
+                                        // if to unicode mapping exists, hex characters are mapped
+                                        if let Some(to_unicode) = &f.to_unicode {
+                                            for char_key in hex_bytes {
+                                                let char_key = char_key as usize;
+                                                match to_unicode.0.get(&char_key) {
+                                                    Some(char_val) => s.push(*char_val),
+                                                    None => {
+                                                        panic!("Char with hex code {char_key} was not found")
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            for c in hex_bytes {
+                                                s.push(char::from(c))
+                                            }
+                                        }
+                                    }
+                                    None => for c in hex_bytes {
+                                        s.push(char::from(c))
+                                    },
+                                };
+                                s
+                            }
+                        })
+                        .collect::<Vec<String>>()
+                        .join("");
+                };
+                match &t.t_j {
+                    Some(s) => s.clone() + "\n",
                     // Text does not contains TJ or Tj operator
                     None => "".to_string(),
                 }
@@ -313,7 +374,7 @@ mod tests {
         );
         assert_eq!(
             stream_iter.next(),
-            Some(StreamToken::Text("Hello, world!".to_string()))
+            Some(StreamToken::LitteralString("Hello, world!".to_string()))
         );
         assert_eq!(
             stream_iter.next(),
@@ -349,14 +410,29 @@ mod tests {
         assert_eq!(text.t_j, Some("Hello, world!".to_string()));
     }
 
-    // #[test]
-    // fn test_text_hexstrings() {
-    //     let raw =  b"BT\n56.8 706.189 Td /F1 10 Tf[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ\nET".as_slice();
-    //     let text = Text::from(raw);
-    //     assert_eq!(text.t_d, Some((56.8, 706.189)));
-    //     assert_eq!(text.t_f, Some(("F1".to_string(), 10.0)));
-    //     assert_eq!(text.t_upper_j, Some(vec!["lorem ipsum".to_string()]));
-    // }
+    #[test]
+    fn test_text_hexstrings() {
+        let raw =  b"BT\n56.8 706.189 Td /F1 10 Tf[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ\nET".as_slice();
+        let text = Text::from(raw);
+        assert_eq!(text.t_d, Some((56.8, 706.189)));
+        assert_eq!(text.t_f, Some(("F1".to_string(), 10.0)));
+        assert_eq!(
+            text.t_upper_j,
+            Some(vec![
+                PdfString::HexString("18".to_string()),
+                PdfString::HexString("0D".to_string()),
+                PdfString::HexString("06".to_string()),
+                PdfString::HexString("14".to_string()),
+                PdfString::HexString("04".to_string()),
+                PdfString::HexString("03".to_string()),
+                PdfString::HexString("02".to_string()),
+                PdfString::HexString("06".to_string()),
+                PdfString::HexString("04".to_string()),
+                PdfString::HexString("02".to_string()),
+                PdfString::HexString("0906".to_string())
+            ])
+        );
+    }
 
     #[test]
     fn test_text_multiple() {
@@ -400,7 +476,7 @@ mod tests {
                     "at, "
                 ]
                 .iter()
-                .map(|s| s.to_string())
+                .map(|s| PdfString::Litteral(s.to_string()))
                 .collect()
             )
         );
@@ -424,7 +500,7 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
             .as_slice();
         let text = StreamContent::from(raw);
         assert_eq!(text.text.len(), 4);
-        assert_eq!(text.get_text(), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. \nCurabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget \n");
+        assert_eq!(text.get_text(FontMap::default()), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. Curabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget ");
     }
 
     #[test]
@@ -450,62 +526,62 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
         assert_eq!(text_stream.next(), Some(StreamToken::BeginArray));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("v0".to_string()))
+            Some(StreamToken::LitteralString("v0".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text(":=".to_string()))
+            Some(StreamToken::LitteralString(":=".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("ld".to_string()))
+            Some(StreamToken::LitteralString("ld".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("state[748]".to_string()))
+            Some(StreamToken::LitteralString("state[748]".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-2625.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("//".to_string()))
+            Some(StreamToken::LitteralString("//".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("load".to_string()))
+            Some(StreamToken::LitteralString("load".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("primes".to_string()))
+            Some(StreamToken::LitteralString("primes".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("from".to_string()))
+            Some(StreamToken::LitteralString("from".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("the".to_string()))
+            Some(StreamToken::LitteralString("the".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("trace".to_string()))
+            Some(StreamToken::LitteralString("trace".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("activation".to_string()))
+            Some(StreamToken::LitteralString("activation".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Text("record".to_string()))
+            Some(StreamToken::LitteralString("record".to_string()))
         );
         assert_eq!(text_stream.next(), Some(StreamToken::EndArray));
         assert_eq!(

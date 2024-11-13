@@ -145,13 +145,13 @@ impl PageTreeKids {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct Font {
+pub struct Font {
     subtype: Name,
     name: Option<Name>,
     base_font: Name,
     first_char: Option<Number>,
     last_char: Option<Number>,
-    to_unicode: Option<ToUnicodeCMap>,
+    pub to_unicode: Option<ToUnicodeCMap>,
 }
 
 impl Display for Font {
@@ -218,7 +218,13 @@ impl From<Dictionary<'_>> for Font {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct FontMap(HashMap<Name, Font>);
+pub struct FontMap(pub HashMap<Name, Font>);
+
+impl Default for FontMap {
+    fn default() -> Self {
+        Self(HashMap::new())
+    }
+}
 
 impl Display for FontMap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -438,7 +444,11 @@ impl Page {
     }
 
     pub fn extract_text(&self) -> String {
-        text::StreamContent::from(self.extract_stream().as_bytes()).get_text()
+        let fontmap = self
+            .get_resources()
+            .font
+            .expect("Missing font in current page resources");
+        text::StreamContent::from(self.extract_stream().as_bytes()).get_text(fontmap)
     }
 
     pub fn extract_stream(&self) -> String {
