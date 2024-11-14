@@ -1,3 +1,5 @@
+use crate::tokenizer::{Lemmatizer, Token, Number};
+
 use super::object;
 use std::collections::HashMap;
 
@@ -128,17 +130,47 @@ fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
     table
 }
 
-fn xref_slice(stream: &[u8]) -> &str {
-    // TODO - improve this by reading the startxref on last line
-    let startxref = match stream.windows(4).position(|w| w == b"xref") {
-        Some(i) => i,
-        None => panic!("Missing xref token in the entire PDF"),
+fn startxref(pdf_bytes: &[u8]) -> usize {
+    // Idea: improve search with backward search in double ended lemmatizer
+    let pattern = b"startxref";
+    // Check startxref existance and unicity
+    match pdf_bytes
+        .windows(pattern.len())
+        .filter(|&w| w == pattern)
+        .count() {
+            0 => panic!("PDF is corrupted, no 'startxref' bytes"),
+            1 => (),
+            2.. => panic!("PDF contains multiple 'startxref' bytes. Incrementally updated PDF files are currently not supported.")
+        };
+    let index = pdf_bytes
+        .windows(pattern.len())
+        .position(|w| w == pattern)
+        .unwrap();
+    let xref_tmp = &XrefTable::default();
+    let mut lemmatizer = Lemmatizer::new(pdf_bytes, index, xref_tmp);
+    match lemmatizer.next() {
+        Some(Token::String(s)) => {
+            if s.as_slice() != b"startxref" {
+                panic!("Startxref string missing in tokenizer, found token string {s:?}")
+            }
+        }
+        Some(t) => panic!("Startxref string missing in tokenizer, found token {t:?}"),
+        None => panic!("End of stream"),
     };
-    match std::str::from_utf8(&stream[startxref..]) {
+    match lemmatizer.next() {
+        Some(Token::Numeric(Number::Integer(i))) => i as usize,
+        Some(t) => panic!("Startxref integer missing in tokenizer, found token {t:?}"),
+        None => panic!("End of stream"),
+    }
+}
+
+fn xref_slice(pdf_bytes: &[u8]) -> &str {
+    let startxref = startxref(pdf_bytes);
+    match std::str::from_utf8(&pdf_bytes[startxref..]) {
         Ok(s) => s,
         Err(_) => panic!(
             "Unable to read xref slice, {:?}",
-            std::str::from_utf8(&stream[startxref..startxref + 800])
+            std::str::from_utf8(&pdf_bytes[startxref..startxref + 800])
         ),
     }
 }
