@@ -46,3 +46,12 @@ fn test_index() {
     trailer.extract(pdfrust::Extract::Text);
     trailer.extract(pdfrust::Extract::RawContent);
 }
+
+#[test]
+fn test_latex() {
+    let file = std::fs::read("data/pdflatex-4-pages.pdf").unwrap();
+    let xref = pdfrust::xref::xref_table(&file);
+    let trailer = pdfrust::trailer(&file, &xref);
+    trailer.extract(pdfrust::Extract::Text);
+    trailer.extract(pdfrust::Extract::RawContent);
+}
