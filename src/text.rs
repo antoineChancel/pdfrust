@@ -1,122 +1,72 @@
 use core::iter::Iterator;
-use std::{iter::Peekable, num::ParseIntError, slice::Iter};
+use std::num::ParseIntError;
 
 use crate::{
-    body::FontMap,
-    tokenizer::{CharacterSet, Delimiter},
+    body::FontMap, tokenizer::{Number, Token, Tokenizer}
 };
-struct Stream<'a>(Peekable<Iter<'a, u8>>);
+struct ContentStream<'a>(Tokenizer<'a>);
 
 #[derive(Debug, PartialEq)]
 enum Operator {
-    // text positionning
-    Td,
-    TD,
-    Tm,
-    // text font
-    Tf,
-    // text showing
-    Tj, // single
-    TJ, // multiple
+    Td, // move to the start of next line
+    TD, // move to the start of next line
+    Tm, // set text matrix Tm and text line matrix Tlm
+    Tf, // text font
+    Tj, // show text string
+    TJ, // show text array
 }
 
 #[derive(Debug, PartialEq)]
-enum StreamToken {
+enum ContentToken {
     BeginText,
     EndText,
     BeginArray,
     EndArray,
     Operator(Operator),
     Name(String),
-    Numeric(f32),
-    LitteralString(String),
-    HexString(String),
+    Numeric(Number),
+    LitteralString(Vec<u8>),
+    HexString(Vec<u8>),
     Other(String),
 }
 
-impl<'a> From<&'a [u8]> for Stream<'a> {
-    fn from(s: &'a [u8]) -> Self {
-        Stream(s.iter().peekable())
+impl<'a> From<Tokenizer<'a>> for ContentStream<'a> {
+    fn from(s: Tokenizer<'a>) -> Self {
+        ContentStream(s)
     }
 }
 
-impl Iterator for Stream<'_> {
-    type Item = StreamToken;
+impl<'a> From<&'a [u8]> for ContentStream<'a> {
+    fn from(bytes: &'a [u8]) -> Self {
+        ContentStream(Tokenizer::new(bytes, 0))
+    }
+}
+
+impl Iterator for ContentStream<'_> {
+    type Item = ContentToken;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut buf = String::new();
-        while let Some(c) = self.0.next() {
-            match CharacterSet::from(c) {
-                CharacterSet::WhiteSpace(_) => continue,
-                CharacterSet::Delimiter(d) => match d {
-                    Delimiter::String => {
-                        for c in self.0.by_ref() {
-                            match CharacterSet::from(c) {
-                                CharacterSet::Delimiter(Delimiter::String) => break,
-                                _ => buf.push(*c as char),
-                            }
-                        }
-                        return Some(StreamToken::LitteralString(buf));
-                    }
-                    Delimiter::Name => {
-                        for c in self.0.by_ref() {
-                            match CharacterSet::from(c) {
-                                CharacterSet::WhiteSpace(_) => break,
-                                CharacterSet::Delimiter(_) => buf.push(*c as char),
-                                CharacterSet::Regular(c) => buf.push(c as char),
-                            }
-                        }
-                        return Some(StreamToken::Name(buf));
-                    }
-                    Delimiter::Array => match c {
-                        b'[' => return Some(StreamToken::BeginArray),
-                        b']' => return Some(StreamToken::EndArray),
-                        b'<' => {
-                            for c in self.0.by_ref() {
-                                match CharacterSet::from(c) {
-                                    CharacterSet::WhiteSpace(_) => break,
-                                    CharacterSet::Regular(c) => buf.push(c as char),
-                                    CharacterSet::Delimiter(_) => break,
-                                }
-                            }
-                            return Some(StreamToken::HexString(buf));
-                        }
-                        b'{' => return Some(StreamToken::Other("{".to_string())),
-                        b'}' => return Some(StreamToken::Other("}".to_string())),
-                        c => panic!("Invalid character {}", *c as char),
-                    },
-                    _ => panic!("Invalid character"),
-                },
-                CharacterSet::Regular(c) => {
-                    buf.push(c as char);
-                    while let Some(c) = self.0.peek() {
-                        match CharacterSet::from(*c) {
-                            CharacterSet::WhiteSpace(_) => break,
-                            CharacterSet::Regular(c) => {
-                                self.0.next();
-                                buf.push(c as char);
-                            }
-                            CharacterSet::Delimiter(_) => break,
-                        }
-                    }
-                    return match buf.as_str() {
-                        "BT" => Some(StreamToken::BeginText),
-                        "ET" => Some(StreamToken::EndText),
-                        "Tj" => Some(StreamToken::Operator(Operator::Tj)),
-                        "TD" => Some(StreamToken::Operator(Operator::TD)),
-                        "Td" => Some(StreamToken::Operator(Operator::Td)),
-                        "Tf" => Some(StreamToken::Operator(Operator::Tf)),
-                        "Tm" => Some(StreamToken::Operator(Operator::Tm)),
-                        "TJ" => Some(StreamToken::Operator(Operator::TJ)),
-                        _ => match buf.parse::<f32>() {
-                            Ok(n) => Some(StreamToken::Numeric(n)),
-                            Err(_) => Some(StreamToken::Other(buf)),
-                        },
-                    };
-                }
-            }
+        match self.0.next() {
+            Some(Token::LitteralString(l)) => Some(ContentToken::LitteralString(l)),
+            Some(Token::Name(l)) => Some(ContentToken::Name(l)),
+            Some(Token::ArrayBegin) => Some(ContentToken::BeginArray),
+            Some(Token::ArrayEnd) => Some(ContentToken::EndArray),
+            Some(Token::HexString(l)) => Some(ContentToken::HexString(l)),
+            Some(Token::String(l)) => match l.as_slice() {
+                b"BT" => Some(ContentToken::BeginText),
+                b"ET" => Some(ContentToken::EndText),
+                b"Tj" => Some(ContentToken::Operator(Operator::Tj)),
+                b"TD" => Some(ContentToken::Operator(Operator::TD)),
+                b"Td" => Some(ContentToken::Operator(Operator::Td)),
+                b"Tf" => Some(ContentToken::Operator(Operator::Tf)),
+                b"Tm" => Some(ContentToken::Operator(Operator::Tm)),
+                b"TJ" => Some(ContentToken::Operator(Operator::TJ)),
+                s => Some(ContentToken::Other(String::from(std::str::from_utf8(s).unwrap()))),
+            },
+            Some(Token::Numeric(n)) => Some(ContentToken::Numeric(n)),
+            Some(t) => panic!("Pdf token {t:?} has no mapping implemented to ContentStream"),
+            None => None,
         }
-        None
     }
 }
 
@@ -128,16 +78,16 @@ enum PdfString {
 
 #[derive(Debug, PartialEq)]
 struct Text {
-    t_upper_d: Option<(f32, f32)>, // Move text position and set leading
-    t_d: Option<(f32, f32)>,       // Move text position
-    t_m: Option<(f32, f32, f32, f32, f32, f32)>, // Set text matrix and text line matrix
-    t_f: Option<(String, f32)>,    // Set text font and size
-    t_j: Option<String>,           // Show text
+    t_upper_d: Option<(Number, Number)>, // Move text position and set leading
+    t_d: Option<(Number, Number)>,       // Move text position
+    t_m: Option<(Number, Number, Number, Number, Number, Number)>, // Set text matrix and text line matrix
+    t_f: Option<(String, Number)>, // Set text font and size
+    t_j: Option<String>, // Show text
     t_upper_j: Option<Vec<PdfString>>, // Show text, allowing individual glyph positioning
 }
 
-impl<'a> From<&mut Stream<'a>> for Text {
-    fn from(value: &mut Stream<'a>) -> Self {
+impl<'a> From<&mut ContentStream<'a>> for Text {
+    fn from(value: &mut ContentStream<'a>) -> Self {
         let mut text = Text {
             t_upper_d: None,
             t_d: None,
@@ -146,110 +96,114 @@ impl<'a> From<&mut Stream<'a>> for Text {
             t_j: None,
             t_upper_j: None,
         };
-        let mut buf: Vec<StreamToken> = vec![];
+        let mut operands: Vec<ContentToken> = vec![];
         for token in value.by_ref() {
             match token {
-                StreamToken::BeginText => continue,
-                StreamToken::EndText => break,
-                StreamToken::Operator(op) => match op {
+                ContentToken::BeginText => continue,
+                ContentToken::EndText => break,
+                ContentToken::Operator(op) => match op {
                     Operator::Td => {
                         text.t_d = Some((
-                            match buf[0] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token, buf {buf:?}"),
+                            match &operands[0] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Td operator"),
                             },
-                            match buf[1] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[1] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Td operator"),
                             },
                         ));
-                        buf.clear();
+                        operands.clear();
                     }
                     Operator::TD => {
                         text.t_upper_d = Some((
-                            match buf[0] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[0] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for TD operator"),
                             },
-                            match buf[1] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[1] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for TD operator"),
                             },
                         ));
-                        buf.clear();
+                        operands.clear();
                     }
                     Operator::Tm => {
                         text.t_m = Some((
-                            match buf[0] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[0] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
-                            match buf[1] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[1] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
-                            match buf[2] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[2] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
-                            match buf[3] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[3] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
-                            match buf[4] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[4] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
-                            match buf[5] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token"),
+                            match &operands[5] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tm operator"),
                             },
                         ));
-                        buf.clear();
+                        operands.clear();
                     }
                     Operator::Tf => {
                         text.t_f = Some((
-                            match &buf[0] {
-                                StreamToken::Name(n) => n.clone(),
-                                StreamToken::Other(n) => n.clone(), // may happen
-                                _ => panic!("Invalid token, buffer {buf:?}"),
+                            match &operands[0] {
+                                ContentToken::Name(n) => n.clone(),
+                                ContentToken::Other(n) => n.clone(), // may happen
+                                _ => panic!("Invalid operands {operands:?} for Tf operator"),
                             },
-                            match buf[1] {
-                                StreamToken::Numeric(n) => n,
-                                _ => panic!("Invalid token {:?}", buf),
+                            match &operands[1] {
+                                ContentToken::Numeric(n) => n.clone(),
+                                _ => panic!("Invalid operands {operands:?} for Tf operator"),
                             },
                         ));
-                        buf.clear();
+                        operands.clear();
                     }
                     Operator::Tj => {
-                        text.t_j = Some(match &buf[0] {
-                            StreamToken::LitteralString(n) => n.clone(),
-                            _ => panic!("Invalid token"),
+                        text.t_j = Some(match &operands[0] {
+                            ContentToken::LitteralString(n) => {
+                                String::from(std::str::from_utf8(n).unwrap())
+                            }
+                            _ => panic!("Invalid operands {operands:?} for Tj operator"),
                         });
-                        buf.clear();
+                        operands.clear();
                     }
                     Operator::TJ => {
                         text.t_upper_j = Some(
-                            buf.iter()
+                            operands.iter()
                                 .filter(|t| {
                                     matches!(
                                         t,
-                                        StreamToken::LitteralString(_) | StreamToken::HexString(_)
+                                        ContentToken::LitteralString(_) | ContentToken::HexString(_)
                                     )
                                 })
                                 .map(|f| match f {
-                                    StreamToken::LitteralString(t) => {
-                                        PdfString::Litteral(t.clone())
-                                    }
-                                    StreamToken::HexString(t) => PdfString::HexString(t.clone()),
-                                    _ => panic!("Invalid token"),
+                                    ContentToken::LitteralString(v) => PdfString::Litteral(
+                                        String::from(std::str::from_utf8(v).unwrap()),
+                                    ),
+                                    ContentToken::HexString(v) => PdfString::HexString(
+                                        String::from(std::str::from_utf8(v).unwrap()),
+                                    ),
+                                    _ => panic!("Invalid operands {operands:?} for TJ operator"),
                                 })
                                 .collect(),
                         );
-                        buf.clear();
+                        operands.clear();
                     }
                 },
-                t => buf.push(t),
+                t => operands.push(t),
             }
         }
         text
@@ -258,31 +212,31 @@ impl<'a> From<&mut Stream<'a>> for Text {
 
 impl From<&[u8]> for Text {
     fn from(value: &[u8]) -> Self {
-        Self::from(&mut Stream::from(value))
+        Self::from(&mut ContentStream::from(Tokenizer::new(value, 0)))
     }
 }
 
-pub struct StreamContent {
+pub struct Content {
     text: Vec<Text>,
 }
 
-impl From<&[u8]> for StreamContent {
+impl From<&[u8]> for Content {
     fn from(value: &[u8]) -> Self {
-        let mut stream_iter = Stream::from(value);
+        let mut stream_iter = ContentStream::from(Tokenizer::new(value, 0));
         let mut text = vec![];
         while let Some(token) = stream_iter.next() {
             match token {
-                StreamToken::BeginText => {
+                ContentToken::BeginText => {
                     text.push(Text::from(&mut stream_iter));
                 }
                 _ => continue,
             }
         }
-        StreamContent { text }
+        Content { text }
     }
 }
 
-impl StreamContent {
+impl Content {
     pub fn decode_hex(hexstring: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..hexstring.len())
             .step_by(2)
@@ -305,7 +259,7 @@ impl StreamContent {
                         .map(|elem| match elem {
                             PdfString::Litteral(s) => s.clone(),
                             PdfString::HexString(s) => {
-                                let hex_bytes = StreamContent::decode_hex(s).expect("Unable to decode hexstring to bytes");
+                                let hex_bytes = Content::decode_hex(s).expect("Unable to decode hexstring to bytes");
                                 let mut s= String::new();
                                 match font {
                                     Some(f) => {
@@ -354,58 +308,58 @@ mod tests {
     #[test]
     fn test_tokens() {
         let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
-        let mut stream_iter = Stream::from(raw);
-        assert_eq!(stream_iter.next(), Some(StreamToken::BeginText));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(70.0)));
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(50.0)));
+        let mut stream_iter = ContentStream::from(raw);
+        assert_eq!(stream_iter.next(), Some(ContentToken::BeginText));
+        assert_eq!(stream_iter.next(), Some(ContentToken::Numeric(Number::Integer(70))));
+        assert_eq!(stream_iter.next(), Some(ContentToken::Numeric(Number::Integer(50))));
         assert_eq!(
             stream_iter.next(),
-            Some(StreamToken::Operator(Operator::TD))
+            Some(ContentToken::Operator(Operator::TD))
         );
         assert_eq!(
             stream_iter.next(),
-            Some(StreamToken::Name("F1".to_string()))
+            Some(ContentToken::Name("F1".to_string()))
         );
-        assert_eq!(stream_iter.next(), Some(StreamToken::Numeric(12.0)));
+        assert_eq!(stream_iter.next(), Some(ContentToken::Numeric(Number::Integer(12))));
         assert_eq!(
             stream_iter.next(),
-            Some(StreamToken::Operator(Operator::Tf))
-        );
-        assert_eq!(
-            stream_iter.next(),
-            Some(StreamToken::LitteralString("Hello, world!".to_string()))
+            Some(ContentToken::Operator(Operator::Tf))
         );
         assert_eq!(
             stream_iter.next(),
-            Some(StreamToken::Operator(Operator::Tj))
+            Some(ContentToken::LitteralString(Vec::from(b"Hello, world!")))
         );
-        assert_eq!(stream_iter.next(), Some(StreamToken::EndText));
+        assert_eq!(
+            stream_iter.next(),
+            Some(ContentToken::Operator(Operator::Tj))
+        );
+        assert_eq!(stream_iter.next(), Some(ContentToken::EndText));
         assert_eq!(stream_iter.next(), None);
     }
 
     #[test]
     fn test_stream_hexstrings() {
         let raw = b"[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ".as_slice();
-        let mut stream = Stream::from(raw);
-        assert_eq!(stream.next(), Some(StreamToken::BeginArray));
+        let mut stream = ContentStream::from(raw);
+        assert_eq!(stream.next(), Some(ContentToken::BeginArray));
         assert_eq!(
             stream.next(),
-            Some(StreamToken::HexString("18".to_string()))
+            Some(ContentToken::HexString(Vec::from(b"18")))
         );
-        assert_eq!(stream.next(), Some(StreamToken::Numeric(14.0)));
+        assert_eq!(stream.next(), Some(ContentToken::Numeric(Number::Integer(14))));
         assert_eq!(
             stream.next(),
-            Some(StreamToken::HexString("0D".to_string()))
+            Some(ContentToken::HexString(Vec::from("0D")))
         );
-        assert_eq!(stream.next(), Some(StreamToken::Numeric(2.0)));
+        assert_eq!(stream.next(), Some(ContentToken::Numeric(Number::Integer(2))));
     }
 
     #[test]
     fn test_text_single() {
         let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
         let text = Text::from(raw);
-        assert_eq!(text.t_upper_d, Some((70.0, 50.0)));
-        assert_eq!(text.t_f, Some(("F1".to_string(), 12.0)));
+        assert_eq!(text.t_upper_d, Some((Number::Integer(70), Number::Integer(50))));
+        assert_eq!(text.t_f, Some(("F1".to_string(), Number::Integer(12))));
         assert_eq!(text.t_j, Some("Hello, world!".to_string()));
     }
 
@@ -413,8 +367,8 @@ mod tests {
     fn test_text_hexstrings() {
         let raw =  b"BT\n56.8 706.189 Td /F1 10 Tf[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ\nET".as_slice();
         let text = Text::from(raw);
-        assert_eq!(text.t_d, Some((56.8, 706.189)));
-        assert_eq!(text.t_f, Some(("F1".to_string(), 10.0)));
+        assert_eq!(text.t_d, Some((Number::Real(56.8), Number::Real(706.189))));
+        assert_eq!(text.t_f, Some(("F1".to_string(), Number::Integer(10))));
         assert_eq!(
             text.t_upper_j,
             Some(vec![
@@ -442,8 +396,8 @@ mod tests {
 -11 ( ) -46 (at, ) ] TJ ET"
             .as_slice();
         let text = Text::from(raw);
-        assert_eq!(text.t_m, Some((12.0, 0.0, 0.0, -12.0, 72.0, 688.0)));
-        assert_eq!(text.t_f, Some(("F3.0".to_string(), 1.0)));
+        assert_eq!(text.t_m, Some((Number::Integer(12), Number::Integer(0), Number::Integer(0), Number::Integer(-12), Number::Integer(72), Number::Integer(688))));
+        assert_eq!(text.t_f, Some(("F3.0".to_string(), Number::Integer(1))));
         assert_eq!(
             text.t_upper_j,
             Some(
@@ -497,7 +451,7 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
 -43 ( ) -16 (lectus.) 25 ( ) -86 (Pr) 17 (oin) 68 ( ) -128 (aliquam,) 35 ( )
 -96 (erat) -61 ( eget ) ] TJ ET Q q 1 0 0 -1"
             .as_slice();
-        let text = StreamContent::from(raw);
+        let text = Content::from(raw);
         assert_eq!(text.text.len(), 4);
         assert_eq!(text.get_text(FontMap::default()), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. Curabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget ");
     }
@@ -505,87 +459,87 @@ BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
     #[test]
     fn test_tokenizer_complex() {
         let raw = b"BT\n/F33 8.9664 Tf 54 713.7733 Td[(v0)-525(:=)-525(ld)-525(state[748])-2625(//)-525(load)-525(primes)-525(from)-525(the)-525(trace)-525(activation)-525(record)]TJ".as_slice();
-        let mut text_stream = Stream::from(raw);
-        assert_eq!(text_stream.next(), Some(StreamToken::BeginText));
+        let mut text_stream = ContentStream::from(raw);
+        assert_eq!(text_stream.next(), Some(ContentToken::BeginText));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Name("F33".to_string()))
+            Some(ContentToken::Name("F33".to_string()))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(8.9664)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Real(8.9664))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Operator(Operator::Tf))
+            Some(ContentToken::Operator(Operator::Tf))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(54.0)));
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(713.7733)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(54))));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Real(713.7733))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Operator(Operator::Td))
+            Some(ContentToken::Operator(Operator::Td))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::BeginArray));
+        assert_eq!(text_stream.next(), Some(ContentToken::BeginArray));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("v0".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("v0")))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString(":=".to_string()))
+            Some(ContentToken::LitteralString(Vec::from(":=")))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("ld".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("ld")))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("state[748]".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("state[748]".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-2625.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-2625))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("//".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("//".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("load".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("load".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("primes".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("primes".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("from".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("from".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("the".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("the".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("trace".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("trace".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("activation".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("activation".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::Numeric(-525.0)));
+        assert_eq!(text_stream.next(), Some(ContentToken::Numeric(Number::Integer(-525))));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::LitteralString("record".to_string()))
+            Some(ContentToken::LitteralString(Vec::from("record".to_string())))
         );
-        assert_eq!(text_stream.next(), Some(StreamToken::EndArray));
+        assert_eq!(text_stream.next(), Some(ContentToken::EndArray));
         assert_eq!(
             text_stream.next(),
-            Some(StreamToken::Operator(Operator::TJ))
+            Some(ContentToken::Operator(Operator::TJ))
         );
     }
 }
