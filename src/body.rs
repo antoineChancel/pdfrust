@@ -442,7 +442,7 @@ impl Page {
             .get_resources()
             .font
             .expect("Missing font in current page resources");
-        text::StreamContent::from(self.extract_stream().as_bytes()).get_text(fontmap)
+        text::Content::from(self.extract_stream().as_bytes()).get_text(fontmap)
     }
 
     pub fn extract_stream(&self) -> String {
