@@ -20,6 +20,9 @@ type LineStyle = Number;
 type x = Number;
 type y = Number;
 type Gray = Number; // gray is a number between 0.0 (black) and 1.0 (white)
+type r = Number;
+type g = Number;
+type b = Number;
 
 #[derive(Debug, PartialEq)]
 enum GraphicsInstruction {
@@ -37,6 +40,7 @@ enum GraphicsInstruction {
     re(Number, Number, Number, Number), // Append a rectangle to the current path as a complete subpath, with lower-left corner (x, y) and dimensions width and height in user space.
     // Clipping paths operators (page 235)
     W,
+    W_star,
     // Path painting operators (page 230)
     S,
     f,
@@ -47,6 +51,7 @@ enum GraphicsInstruction {
     sc(Number),
     G(Gray), // // Set the stroking color space to DeviceGray
     g(Gray), // Same as G but used for nonstroking operations.
+    rg(r, g, b),
     // Text positionning operators (page 406)
     Td(Number, Number), // move to the start of next line
     TD(Number, Number), // move to the start of next line
@@ -206,6 +211,7 @@ impl Iterator for Content<'_> {
                         ))
                     }
                     b"W" => return Some(GraphicsInstruction::W),
+                    b"W*" => return Some(GraphicsInstruction::W_star),
                     b"n" => return Some(GraphicsInstruction::n),
                     b"S" => return Some(GraphicsInstruction::S),
                     b"f" => return Some(GraphicsInstruction::f),
@@ -233,6 +239,22 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator G"),
                         }))
+                    }
+                    b"rg" => {
+                        return Some(GraphicsInstruction::rg(
+                            match &buf[0] {
+                                Token::Numeric(n) => n.clone(),
+                                t => panic!("Operand {t:?} is not allowed with operator rg"),
+                            },
+                            match &buf[1] {
+                                Token::Numeric(n) => n.clone(),
+                                t => panic!("Operand {t:?} is not allowed with operator rg"),
+                            },
+                            match &buf[2] {
+                                Token::Numeric(n) => n.clone(),
+                                t => panic!("Operand {t:?} is not allowed with operator rg"),
+                            },
+                        ))
                     }
                     b"BT" => return Some(GraphicsInstruction::BeginText),
                     b"ET" => return Some(GraphicsInstruction::EndText),
