@@ -69,6 +69,7 @@ enum GraphicsInstruction {
     Td(Number, Number), // move to the start of next line
     TD(Number, Number), // move to the start of next line
     Tm(Number, Number, Number, Number, Number, Number), // set text matrix Tm and text line matrix Tlm
+    T_star,
     // Text state operators (page 398)
     Tf(String, Number), // text font
     // Text-showing operators (page 407)
@@ -176,6 +177,10 @@ impl Content<'_> {
             f32::from(e),
             f32::from(f),
         );
+    }
+
+    fn process_T_star(&mut self) {
+        self.process_Td(Number::Integer(0), self.graphic_state.text_state.Tl.clone());
     }
 }
 
@@ -454,6 +459,10 @@ impl Iterator for Content<'_> {
                         };
                         self.process_Tm(a.clone(), b.clone(), c.clone(), d.clone(), e.clone(), f.clone());
                         return Some(GraphicsInstruction::Tm(a, b, c, d, e, f));
+                    }
+                    b"T*" => {
+                        self.process_T_star();
+                        return Some(GraphicsInstruction::T_star)
                     }
                     b"TJ" => {
                         return Some(GraphicsInstruction::TJ(
