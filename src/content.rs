@@ -69,6 +69,7 @@ enum GraphicsInstruction {
     Td(Number, Number), // move to the start of next line
     TD(Number, Number), // move to the start of next line
     Tm(Number, Number, Number, Number, Number, Number), // set text matrix Tm and text line matrix Tlm
+    T_star,
     // Text state operators (page 398)
     Tf(String, Number), // text font
     // Text-showing operators (page 407)
@@ -143,7 +144,44 @@ impl Content<'_> {
         self.graphic_state.text_state = TextState::default();
     }
 
-    fn process_TD(&mut self, tx: Number, ty: Number) {}
+    fn process_Td(&mut self, tx: Number, ty: Number) {
+        self.text_object.tlm =
+            Matrix::new(1.0, 0.0, 0.0, 1.0, f32::from(tx), f32::from(ty)) * self.text_object.tlm;
+        self.text_object.tm = self.text_object.tlm;
+    }
+
+    fn process_TD(&mut self, tx: Number, ty: Number) {
+        self.graphic_state.text_state.Tl = -ty.clone();
+        self.process_Td(tx, ty);
+    }
+
+    fn process_Tf(&mut self, font: String, size: Number) {
+        self.graphic_state.text_state.Tf = Some(font);
+        self.graphic_state.text_state.Tfs = Some(size);
+    }
+
+    fn process_Tm(&mut self, a: Number, b: Number, c: Number, d: Number, e: Number, f: Number) {
+        self.text_object.tm = Matrix::new(
+            f32::from(a.clone()),
+            f32::from(b.clone()),
+            f32::from(c.clone()),
+            f32::from(d.clone()),
+            f32::from(e.clone()),
+            f32::from(f.clone()),
+        );
+        self.text_object.tlm = Matrix::new(
+            f32::from(a),
+            f32::from(b),
+            f32::from(c),
+            f32::from(d),
+            f32::from(e),
+            f32::from(f),
+        );
+    }
+
+    fn process_T_star(&mut self) {
+        self.process_Td(Number::Integer(0), self.graphic_state.text_state.Tl.clone());
+    }
 }
 
 impl Iterator for Content<'_> {
@@ -379,6 +417,7 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator TD"),
                         };
+                        self.process_Td(tx.clone(), ty.clone());
                         return Some(GraphicsInstruction::Td(tx, ty));
                     }
                     b"Tf" => {
@@ -390,35 +429,47 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator TD"),
                         };
+                        self.process_Tf(font.clone(), size.clone());
                         return Some(GraphicsInstruction::Tf(font, size));
                     }
                     b"Tm" => {
-                        return Some(GraphicsInstruction::Tm(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[2] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[3] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[4] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[5] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                        ))
+                        let a = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let b = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let c = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let d = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let e = match &buf[4] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let f = match &buf[5] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        self.process_Tm(
+                            a.clone(),
+                            b.clone(),
+                            c.clone(),
+                            d.clone(),
+                            e.clone(),
+                            f.clone(),
+                        );
+                        return Some(GraphicsInstruction::Tm(a, b, c, d, e, f));
+                    }
+                    b"T*" => {
+                        self.process_T_star();
+                        return Some(GraphicsInstruction::T_star);
                     }
                     b"TJ" => {
                         return Some(GraphicsInstruction::TJ(
@@ -649,6 +700,8 @@ impl TextContent {
 #[cfg(test)]
 mod tests {
 
+    use crate::object::Array;
+
     use super::*;
 
     #[test]
@@ -795,140 +848,53 @@ mod tests {
     //         assert_eq!(text.get_text(FontMap::default()), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. Curabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget ");
     //     }
 
-    //     #[test]
-    //     fn test_tokenizer_complex() {
-    //         let raw = b"BT\n/F33 8.9664 Tf 54 713.7733 Td[(v0)-525(:=)-525(ld)-525(state[748])-2625(//)-525(load)-525(primes)-525(from)-525(the)-525(trace)-525(activation)-525(record)]TJ".as_slice();
-    //         let mut text_stream = ContentStream::from(raw);
-    //         assert_eq!(text_stream.next(), Some(ContentToken::BeginText));
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Name("F33".to_string()))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Real(8.9664)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Operator(Operator::Tf))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(54)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Real(713.7733)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Operator(Operator::Td))
-    //         );
-    //         assert_eq!(text_stream.next(), Some(ContentToken::BeginArray));
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("v0")))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from(":=")))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("ld")))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from(
-    //                 "state[748]".to_string()
-    //             )))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-2625)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("//".to_string())))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("load".to_string())))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from(
-    //                 "primes".to_string()
-    //             )))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("from".to_string())))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("the".to_string())))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from("trace".to_string())))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from(
-    //                 "activation".to_string()
-    //             )))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Numeric(Number::Integer(-525)))
-    //         );
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::LitteralString(Vec::from(
-    //                 "record".to_string()
-    //             )))
-    //         );
-    //         assert_eq!(text_stream.next(), Some(ContentToken::EndArray));
-    //         assert_eq!(
-    //             text_stream.next(),
-    //             Some(ContentToken::Operator(Operator::TJ))
-    //         );
-    //     }
+    #[test]
+    fn test_tokenizer_complex() {
+        let raw = b"BT\n/F33 8.9664 Tf 54 713.7733 Td[(v0)-525(:=)-525(ld)-525(state[748])-2625(//)-525(load)-525(primes)-525(from)-525(the)-525(trace)-525(activation)-525(record)]TJ".as_slice();
+        let mut text_stream = Content::from(raw);
+        assert_eq!(text_stream.next(), Some(GraphicsInstruction::BeginText));
+        assert_eq!(
+            text_stream.next(),
+            Some(GraphicsInstruction::Tf(
+                "F33".to_string(),
+                Number::Real(8.9664)
+            ))
+        );
+        assert_eq!(
+            text_stream.next(),
+            Some(GraphicsInstruction::Td(
+                Number::Integer(54),
+                Number::Real(713.7733)
+            ))
+        );
+        assert_eq!(
+            text_stream.next(),
+            Some(GraphicsInstruction::TJ(vec![
+                ArrayVal::Text("v0".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text(":=".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("ld".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("state[748]".to_string()),
+                ArrayVal::Pos(Number::Integer(-2625)),
+                ArrayVal::Text("//".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("load".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("primes".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("from".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("the".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("trace".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("activation".to_string()),
+                ArrayVal::Pos(Number::Integer(-525)),
+                ArrayVal::Text("record".to_string()),
+                ]))
+        );
+        assert_eq!(text_stream.next(), None);
+    }
 }

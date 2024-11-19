@@ -1,5 +1,5 @@
 use core::panic;
-use std::{iter::Peekable, slice::Iter};
+use std::{iter::Peekable, ops::Neg, slice::Iter};
 
 use crate::xref::XrefTable;
 
@@ -32,6 +32,25 @@ impl WhiteSpace {
 pub enum Number {
     Integer(i32),
     Real(f32),
+}
+
+impl From<Number> for f32 {
+    fn from(value: Number) -> Self {
+        match value {
+            Number::Integer(i) => i as f32,
+            Number::Real(f) => f,
+        }
+    }
+}
+
+impl std::ops::Neg for Number {
+    type Output = Number;
+    fn neg(self) -> Self::Output {
+        match self {
+            Number::Integer(i) => Number::Integer(-i),
+            Number::Real(f) => Number::Real(-f),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq)]
