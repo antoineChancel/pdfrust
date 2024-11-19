@@ -1,6 +1,6 @@
 use std::ops;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Matrix(f32, f32, f32, f32, f32, f32);
 
 impl Default for Matrix {
@@ -10,7 +10,7 @@ impl Default for Matrix {
 }
 
 impl Matrix {
-    fn new(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
+    pub fn new(a: f32, b: f32, c: f32, d: f32, e: f32, f: f32) -> Self {
         Self(a, b, c, d, e, f)
     }
 }

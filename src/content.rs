@@ -143,7 +143,15 @@ impl Content<'_> {
         self.graphic_state.text_state = TextState::default();
     }
 
-    fn process_TD(&mut self, tx: Number, ty: Number) {}
+    fn process_Td(&mut self, tx: Number, ty: Number) {
+        self.text_object.tlm = Matrix::new(1.0, 0.0, 0.0, 1.0, f32::from(tx), f32::from(ty)) * self.text_object.tlm;
+        self.text_object.tm = self.text_object.tlm;
+    }
+
+    fn process_TD(&mut self, tx: Number, ty: Number) {
+        self.graphic_state.text_state.Tl = -ty.clone();
+        self.process_Td(tx, ty);
+    }
 }
 
 impl Iterator for Content<'_> {
@@ -379,6 +387,7 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator TD"),
                         };
+                        self.process_Td(tx.clone(), ty.clone());
                         return Some(GraphicsInstruction::Td(tx, ty));
                     }
                     b"Tf" => {
