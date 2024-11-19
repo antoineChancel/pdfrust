@@ -8,9 +8,9 @@ use std::{
 
 use crate::{
     cmap::ToUnicodeCMap,
+    content,
     filters::flate_decode,
     object::{Array, Dictionary, Name, Number, Object},
-    text,
     xref::XrefTable,
     Extract,
 };
@@ -442,7 +442,7 @@ impl Page {
             .get_resources()
             .font
             .expect("Missing font in current page resources");
-        text::Content::from(self.extract_stream().as_bytes()).get_text(fontmap)
+        content::TextContent::from(self.extract_stream().as_bytes()).get_text(fontmap)
     }
 
     pub fn extract_stream(&self) -> String {
