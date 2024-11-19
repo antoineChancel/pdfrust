@@ -144,13 +144,38 @@ impl Content<'_> {
     }
 
     fn process_Td(&mut self, tx: Number, ty: Number) {
-        self.text_object.tlm = Matrix::new(1.0, 0.0, 0.0, 1.0, f32::from(tx), f32::from(ty)) * self.text_object.tlm;
+        self.text_object.tlm =
+            Matrix::new(1.0, 0.0, 0.0, 1.0, f32::from(tx), f32::from(ty)) * self.text_object.tlm;
         self.text_object.tm = self.text_object.tlm;
     }
 
     fn process_TD(&mut self, tx: Number, ty: Number) {
         self.graphic_state.text_state.Tl = -ty.clone();
         self.process_Td(tx, ty);
+    }
+
+    fn process_Tf(&mut self, font: String, size: Number) {
+        self.graphic_state.text_state.Tf = Some(font);
+        self.graphic_state.text_state.Tfs = Some(size);
+    }
+
+    fn process_Tm(&mut self, a: Number, b: Number, c: Number, d: Number, e: Number, f: Number) {
+        self.text_object.tm = Matrix::new(
+            f32::from(a.clone()),
+            f32::from(b.clone()),
+            f32::from(c.clone()),
+            f32::from(d.clone()),
+            f32::from(e.clone()),
+            f32::from(f.clone()),
+        );
+        self.text_object.tlm = Matrix::new(
+            f32::from(a),
+            f32::from(b),
+            f32::from(c),
+            f32::from(d),
+            f32::from(e),
+            f32::from(f),
+        );
     }
 }
 
@@ -399,35 +424,36 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator TD"),
                         };
+                        self.process_Tf(font.clone(), size.clone());
                         return Some(GraphicsInstruction::Tf(font, size));
                     }
                     b"Tm" => {
-                        return Some(GraphicsInstruction::Tm(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[2] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[3] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[4] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                            match &buf[5] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator Tm"),
-                            },
-                        ))
+                        let a = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let b = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let c = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let d = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let e = match &buf[4] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let f = match &buf[5] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        self.process_Tm(a.clone(), b.clone(), c.clone(), d.clone(), e.clone(), f.clone());
+                        return Some(GraphicsInstruction::Tm(a, b, c, d, e, f));
                     }
                     b"TJ" => {
                         return Some(GraphicsInstruction::TJ(

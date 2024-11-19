@@ -38,7 +38,7 @@ impl From<Number> for f32 {
     fn from(value: Number) -> Self {
         match value {
             Number::Integer(i) => i as f32,
-            Number::Real(f) => f
+            Number::Real(f) => f,
         }
     }
 }
@@ -48,7 +48,7 @@ impl std::ops::Neg for Number {
     fn neg(self) -> Self::Output {
         match self {
             Number::Integer(i) => Number::Integer(-i),
-            Number::Real(f) => Number::Real(-f)
+            Number::Real(f) => Number::Real(-f),
         }
     }
 }
