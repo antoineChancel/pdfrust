@@ -30,10 +30,10 @@ enum GraphicsInstruction {
     q,
     Q,
     cm(Number, Number, Number, Number, Number, Number), // Modify current transfo matrix
-    w(LineWidth), // Set the line width in the graphics state
-    J(LineStyle), // Set the line cap style in the graphics state
+    w(LineWidth),                                       // Set the line width in the graphics state
+    J(LineStyle),            // Set the line cap style in the graphics state
     d(DashArray, DashPhase), // Set the line dash pattern in the graphics state
-    i(Number), // Set the flatness tolerance in the graphics state
+    i(Number),               // Set the flatness tolerance in the graphics state
     // Path construction operators (page 226)
     m(x, y), // Begin a new subpath by moving the current point to coordinates (x, y)
     l(x, y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y).
@@ -125,18 +125,16 @@ impl Iterator for Content<'_> {
                         ))
                     }
                     b"w" => {
-                        return Some(GraphicsInstruction::w(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator J"),
-                            }))
+                        return Some(GraphicsInstruction::w(match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator J"),
+                        }))
                     }
                     b"J" => {
-                        return Some(GraphicsInstruction::J(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator J"),
-                            }))
+                        return Some(GraphicsInstruction::J(match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator J"),
+                        }))
                     }
                     b"d" => {
                         let mut e = buf.iter();
@@ -287,9 +285,10 @@ impl Iterator for Content<'_> {
                                     Token::Numeric(n) => n.clone(),
                                     t => panic!("Operand {t:?} is not allowed with operator TD"),
                                 },
-                            ))
-                        } else { // skip
-                            return self.next()
+                            ));
+                        } else {
+                            // skip
+                            return self.next();
                         }
                     }
                     b"Tf" => {
@@ -339,7 +338,7 @@ impl Iterator for Content<'_> {
                                     matches!(
                                         t,
                                         Token::LitteralString(_)
-                                            | Token::String(_)
+                                            | Token::HexString(_)
                                             | Token::Numeric(_)
                                     )
                                 })
@@ -347,7 +346,7 @@ impl Iterator for Content<'_> {
                                     Token::LitteralString(s) => {
                                         ArrayVal::Text(String::from_utf8(s.to_vec()).unwrap())
                                     }
-                                    Token::String(s) => {
+                                    Token::HexString(s) => {
                                         ArrayVal::Text(String::from_utf8(s.to_vec()).unwrap())
                                     }
                                     Token::Numeric(n) => ArrayVal::Pos(n.clone()),
