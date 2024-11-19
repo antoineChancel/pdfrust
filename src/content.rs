@@ -5,7 +5,12 @@ use crate::{
     body::FontMap,
     tokenizer::{Number, Token, Tokenizer},
 };
-struct Content<'a>(Tokenizer<'a>);
+
+struct Content<'a> {
+    graphic_state: GraphicsState,
+    graphic_state_stack: Vec<GraphicsState>,
+    tokenizer: Tokenizer<'a>,
+}
 
 #[derive(Debug, PartialEq)]
 enum ArrayVal {
@@ -69,14 +74,22 @@ enum GraphicsInstruction {
 }
 
 impl<'a> From<Tokenizer<'a>> for Content<'a> {
-    fn from(s: Tokenizer<'a>) -> Self {
-        Content(s)
+    fn from(tokenizer: Tokenizer<'a>) -> Self {
+        Content {
+            graphic_state: GraphicsState::default(),
+            graphic_state_stack: vec![],
+            tokenizer,
+        }
     }
 }
 
 impl<'a> From<&'a [u8]> for Content<'a> {
     fn from(bytes: &'a [u8]) -> Self {
-        Content(Tokenizer::new(bytes, 0))
+        Content {
+            graphic_state: GraphicsState::default(),
+            graphic_state_stack: vec![],
+            tokenizer: Tokenizer::new(bytes, 0),
+        }
     }
 }
 
@@ -85,7 +98,7 @@ impl Iterator for Content<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut buf: Vec<Token> = vec![];
-        while let Some(t) = self.0.next() {
+        while let Some(t) = self.tokenizer.next() {
             match t {
                 Token::LitteralString(_) => buf.push(t),
                 Token::Name(_) => buf.push(t),
@@ -371,6 +384,80 @@ impl Iterator for Content<'_> {
             }
         }
         None
+    }
+}
+
+// Text state operators (page 397)
+struct TextState {
+    Tc: Number,          // char spacing
+    Tw: Number,          // word spacing
+    Th: Number,          // horizontal scaling
+    Tl: Number,          // leading
+    Tf: Option<String>,  // text font
+    Tfs: Option<Number>, // text font size
+    Tmode: Number,       // text rendering mode
+    Trise: Number,       // text rise
+    Tk: Option<Number>,  // text knockout
+}
+
+impl Default for TextState {
+    fn default() -> Self {
+        Self {
+            Tc: Number::Integer(0),
+            Tw: Number::Integer(0),
+            Th: Number::Real(1.0),
+            Tl: Number::Integer(0),
+            Tf: None,
+            Tfs: None,
+            Tmode: Number::Integer(0),
+            Trise: Number::Integer(0),
+            Tk: None,
+        }
+    }
+}
+
+struct GraphicsState {
+    ctm: [Number; 6], // current transformation matrix
+    // TODO: clipping_path,
+    color_space: String, // current color space
+    // TODO: color,
+    text_state: TextState,
+    line_width: Number,
+    line_cap: Number,
+    line_join: Number,
+    miter_limit: Number,
+    // TODO: dash_pattern,
+    rendering_intent: String,
+    stroke_adjustment: bool,
+    blend_mode: String,
+    // TODO: softmask,
+    alpha_constant: Number,
+    alpha_source: bool,
+}
+
+impl Default for GraphicsState {
+    fn default() -> Self {
+        Self {
+            ctm: [
+                Number::Integer(1),
+                Number::Integer(0),
+                Number::Integer(0),
+                Number::Integer(1),
+                Number::Integer(0),
+                Number::Integer(0),
+            ],
+            color_space: String::from("DeviceGray"),
+            text_state: TextState::default(),
+            line_width: Number::Real(1.0),
+            line_cap: Number::Integer(0), // square butt caps
+            line_join: Number::Integer(0),
+            miter_limit: Number::Real(10.0),
+            rendering_intent: String::from("RelativeColorimetric"),
+            stroke_adjustment: false,
+            blend_mode: String::from("Normal"),
+            alpha_constant: Number::Real(1.0),
+            alpha_source: false,
+        }
     }
 }
 

@@ -8,9 +8,9 @@ use std::{
 
 use crate::{
     cmap::ToUnicodeCMap,
+    content,
     filters::flate_decode,
     object::{Array, Dictionary, Name, Number, Object},
-    content,
     xref::XrefTable,
     Extract,
 };
