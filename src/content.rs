@@ -1,14 +1,22 @@
-use core::{iter::Iterator, panic};
+use core::iter::Iterator;
 use std::num::ParseIntError;
 
 use crate::{
+    algebra::Matrix,
     body::FontMap,
     tokenizer::{Number, Token, Tokenizer},
 };
 
+#[derive(Default)]
+struct TextObject {
+    tm: Matrix,  // text matrix
+    tlm: Matrix, // text line matrix
+}
+
 struct Content<'a> {
     graphic_state: GraphicsState,
     graphic_state_stack: Vec<GraphicsState>,
+    text_object: TextObject,
     tokenizer: Tokenizer<'a>,
 }
 
@@ -78,6 +86,7 @@ impl<'a> From<Tokenizer<'a>> for Content<'a> {
         Content {
             graphic_state: GraphicsState::default(),
             graphic_state_stack: vec![],
+            text_object: TextObject::default(),
             tokenizer,
         }
     }
@@ -88,9 +97,53 @@ impl<'a> From<&'a [u8]> for Content<'a> {
         Content {
             graphic_state: GraphicsState::default(),
             graphic_state_stack: vec![],
+            text_object: TextObject::default(),
             tokenizer: Tokenizer::new(bytes, 0),
         }
     }
+}
+
+impl Content<'_> {
+    fn process_q(&mut self) {
+        self.graphic_state_stack.push(self.graphic_state.clone())
+    }
+
+    fn process_Q(&mut self) {
+        self.graphic_state = self
+            .graphic_state_stack
+            .pop()
+            .expect("Unable to restore graphic state from empty stack");
+    }
+
+    fn process_cm(&mut self, cm: [Number; 6]) {
+        self.graphic_state.ctm = cm;
+    }
+
+    fn process_w(&mut self, line_width: Number) {
+        self.graphic_state.line_width = line_width;
+    }
+
+    fn process_J(&mut self, line_cap: Number) {
+        self.graphic_state.line_cap = line_cap;
+    }
+
+    fn process_d(&mut self, dash_array: DashArray) {}
+
+    fn process_i(&mut self, flatness: Number) {
+        self.graphic_state.flatness = flatness;
+    }
+
+    fn process_m(&mut self, x: Number, y: Number) {}
+
+    fn process_l(&mut self, x: Number, y: Number) {}
+
+    fn process_re(&mut self, x: Number, y: Number, width: Number, height: Number) {}
+
+    fn process_BT(&mut self) {
+        self.graphic_state.text_state = TextState::default();
+    }
+
+    fn process_TD(&mut self, tx: Number, ty: Number) {}
 }
 
 impl Iterator for Content<'_> {
@@ -107,47 +160,64 @@ impl Iterator for Content<'_> {
                 Token::HexString(_) => buf.push(t),
                 Token::Numeric(_) => buf.push(t),
                 Token::String(l) => match l.as_slice() {
-                    b"q" => return Some(GraphicsInstruction::q),
-                    b"Q" => return Some(GraphicsInstruction::Q),
+                    b"q" => {
+                        self.process_q();
+                        return Some(GraphicsInstruction::q);
+                    }
+                    b"Q" => {
+                        self.process_Q();
+                        return Some(GraphicsInstruction::Q);
+                    }
                     b"cm" => {
-                        return Some(GraphicsInstruction::cm(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[2] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[3] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[4] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[5] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                        ))
+                        let a = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let b = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let c = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let d = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let e = match &buf[4] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let f = match &buf[5] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        self.process_cm([
+                            a.clone(),
+                            b.clone(),
+                            c.clone(),
+                            d.clone(),
+                            e.clone(),
+                            f.clone(),
+                        ]);
+                        return Some(GraphicsInstruction::cm(a, b, c, d, e, f));
                     }
                     b"w" => {
-                        return Some(GraphicsInstruction::w(match &buf[0] {
+                        let line_width = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator J"),
-                        }))
+                        };
+                        self.process_w(line_width.clone());
+                        return Some(GraphicsInstruction::w(line_width));
                     }
                     b"J" => {
-                        return Some(GraphicsInstruction::J(match &buf[0] {
+                        let line_cap = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator J"),
-                        }))
+                        };
+                        self.process_J(line_cap.clone());
+                        return Some(GraphicsInstruction::J(line_cap));
                     }
                     b"d" => {
                         let mut e = buf.iter();
@@ -169,152 +239,158 @@ impl Iterator for Content<'_> {
                             Some(t) => panic!("First operand {t:?} is not allowed for operator d"),
                             None => panic!("End of stream too early"),
                         };
+                        self.process_d(dash_array.clone());
                         return Some(GraphicsInstruction::d(dash_array, dash_phase));
                     }
                     b"i" => {
-                        return Some(GraphicsInstruction::i(match &buf[0] {
+                        let flatness = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator re"),
-                        }))
+                        };
+                        self.process_i(flatness.clone());
+                        return Some(GraphicsInstruction::i(flatness));
                     }
                     b"m" => {
-                        return Some(GraphicsInstruction::m(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                        ))
+                        let x = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let y = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        self.process_m(x.clone(), y.clone());
+                        return Some(GraphicsInstruction::m(x, y));
                     }
                     b"l" => {
-                        return Some(GraphicsInstruction::l(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                        ))
+                        let x = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let y = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        self.process_l(x.clone(), y.clone());
+                        return Some(GraphicsInstruction::l(x, y));
                     }
                     b"re" => {
-                        return Some(GraphicsInstruction::re(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[2] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                            match &buf[3] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator re"),
-                            },
-                        ))
+                        let x = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let y = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let width = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        let height = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator re"),
+                        };
+                        self.process_re(x.clone(), y.clone(), width.clone(), height.clone());
+                        return Some(GraphicsInstruction::re(x, y, width, height));
                     }
                     b"W" => return Some(GraphicsInstruction::W),
                     b"W*" => return Some(GraphicsInstruction::W_star),
-                    b"n" => return Some(GraphicsInstruction::n),
                     b"S" => return Some(GraphicsInstruction::S),
                     b"f" => return Some(GraphicsInstruction::f),
                     b"f*" => return Some(GraphicsInstruction::f_star),
+                    b"n" => return Some(GraphicsInstruction::n),
                     b"cs" => {
-                        return Some(GraphicsInstruction::cs(match &buf[0] {
+                        let color_space = match &buf[0] {
                             Token::Name(s) => s.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator cs"),
-                        }))
+                        };
+                        return Some(GraphicsInstruction::cs(color_space));
                     }
                     b"sc" => {
-                        return Some(GraphicsInstruction::sc(match &buf[0] {
+                        let colors = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator cs"),
-                        }))
+                        };
+                        return Some(GraphicsInstruction::sc(colors));
                     }
                     b"G" => {
-                        return Some(GraphicsInstruction::G(match &buf[0] {
+                        let gray = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator G"),
-                        }))
+                        };
+                        return Some(GraphicsInstruction::G(gray));
                     }
                     b"g" => {
-                        return Some(GraphicsInstruction::g(match &buf[0] {
+                        let gray = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator G"),
-                        }))
+                        };
+                        return Some(GraphicsInstruction::g(gray));
                     }
                     b"rg" => {
-                        return Some(GraphicsInstruction::rg(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator rg"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator rg"),
-                            },
-                            match &buf[2] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator rg"),
-                            },
-                        ))
+                        let r = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        let g = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        let b = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        return Some(GraphicsInstruction::rg(r, g, b));
                     }
-                    b"BT" => return Some(GraphicsInstruction::BeginText),
+                    b"BT" => {
+                        self.process_BT();
+                        return Some(GraphicsInstruction::BeginText);
+                    }
                     b"ET" => return Some(GraphicsInstruction::EndText),
                     b"Tj" => {
-                        return Some(GraphicsInstruction::Tj(match &buf[0] {
+                        let text = match &buf[0] {
                             Token::LitteralString(l) => String::from_utf8(l.to_vec()).unwrap(),
                             t => panic!("Operand {t:?} is not allowed with operator Tj"),
-                        }))
+                        };
+                        return Some(GraphicsInstruction::Tj(text));
                     }
                     b"TD" => {
-                        return Some(GraphicsInstruction::TD(
-                            match &buf[0] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator TD"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator TD"),
-                            },
-                        ))
+                        let tx = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        let ty = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        self.process_TD(tx.clone(), ty.clone());
+                        return Some(GraphicsInstruction::TD(tx, ty));
                     }
                     b"Td" => {
-                        if buf.len() == 2 {
-                            return Some(GraphicsInstruction::Td(
-                                match &buf[0] {
-                                    Token::Numeric(n) => n.clone(),
-                                    t => panic!("Operand {t:?} is not allowed with operator TD"),
-                                },
-                                match &buf[1] {
-                                    Token::Numeric(n) => n.clone(),
-                                    t => panic!("Operand {t:?} is not allowed with operator TD"),
-                                },
-                            ));
-                        } else {
-                            // skip
+                        if buf.len() != 2 {
                             return self.next();
                         }
+                        let tx = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        let ty = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        return Some(GraphicsInstruction::Td(tx, ty));
                     }
                     b"Tf" => {
-                        return Some(GraphicsInstruction::Tf(
-                            match &buf[0] {
-                                Token::Name(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator TD"),
-                            },
-                            match &buf[1] {
-                                Token::Numeric(n) => n.clone(),
-                                t => panic!("Operand {t:?} is not allowed with operator TD"),
-                            },
-                        ))
+                        let font = match &buf[0] {
+                            Token::Name(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        let size = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        return Some(GraphicsInstruction::Tf(font, size));
                     }
                     b"Tm" => {
                         return Some(GraphicsInstruction::Tm(
@@ -388,6 +464,7 @@ impl Iterator for Content<'_> {
 }
 
 // Text state operators (page 397)
+#[derive(Clone)]
 struct TextState {
     Tc: Number,          // char spacing
     Tw: Number,          // word spacing
@@ -416,7 +493,9 @@ impl Default for TextState {
     }
 }
 
+#[derive(Clone)]
 struct GraphicsState {
+    // device-independant state
     ctm: [Number; 6], // current transformation matrix
     // TODO: clipping_path,
     color_space: String, // current color space
@@ -433,6 +512,15 @@ struct GraphicsState {
     // TODO: softmask,
     alpha_constant: Number,
     alpha_source: bool,
+    // device dependant state
+    overprint: bool,
+    overprint_mode: Number,
+    // TODO: black_generation,
+    // TODO: undercolor_removal
+    // TODO: transfer
+    // TODO: halftone
+    flatness: Number,
+    // TODO: smoothness: Number
 }
 
 impl Default for GraphicsState {
@@ -457,6 +545,9 @@ impl Default for GraphicsState {
             blend_mode: String::from("Normal"),
             alpha_constant: Number::Real(1.0),
             alpha_source: false,
+            overprint: false,
+            overprint_mode: Number::Integer(0),
+            flatness: Number::Real(1.0),
         }
     }
 }

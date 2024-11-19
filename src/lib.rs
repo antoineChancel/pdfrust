@@ -2,6 +2,7 @@ use std::fmt::Display;
 
 use xref::XrefTable;
 
+pub mod algebra;
 pub mod body;
 pub mod cmap;
 pub mod content;
