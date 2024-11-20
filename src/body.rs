@@ -151,6 +151,7 @@ pub struct Font {
     base_font: Name,
     first_char: Option<Number>,
     last_char: Option<Number>,
+    widths: Option<Vec<Number>>,
     pub to_unicode: Option<ToUnicodeCMap>,
 }
 
@@ -158,7 +159,7 @@ impl Display for Font {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.to_unicode
+            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nWidths: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.widths, self.to_unicode
         )
     }
 }
@@ -196,6 +197,32 @@ impl From<Dictionary<'_>> for Font {
             last_char: match value.get("LastChar") {
                 Some(Object::Numeric(n)) => Some(n.clone()),
                 Some(o) => panic!("LastChar should be a numeric object, found {o:?}"),
+                None => None,
+            },
+            widths: match value.get("Widths") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => {
+                    match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => match Object::new(bytes, address, xref) {
+                            Object::Array(a) => Some(a.iter().map(|o| match o {
+                                Object::Numeric(n) => n.clone(),
+                                o => panic!("Widths should be an array containing only numbers, found {o:?}")
+                            }).collect()),
+                            o => panic!("ToUnicode should be a stream object, found {o:?}"),
+                        },
+                        None => panic!("ToUnicode stream object not found in xref table"),
+                    }
+                }
+                Some(Object::Array(a)) => Some(
+                    a.iter()
+                        .map(|o| match o {
+                            Object::Numeric(n) => n.clone(),
+                            o => panic!(
+                                "Widths should be an array containing only numbers, found {o:?}"
+                            ),
+                        })
+                        .collect(),
+                ),
+                Some(o) => panic!("Widths should be an array of objects, found {o:?}"),
                 None => None,
             },
             to_unicode: match value.get("ToUnicode") {

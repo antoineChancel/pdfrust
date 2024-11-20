@@ -386,13 +386,6 @@ impl Iterator for Content<'_> {
                         return Some(GraphicsInstruction::BeginText);
                     }
                     b"ET" => return Some(GraphicsInstruction::EndText),
-                    b"Tj" => {
-                        let text = match &buf[0] {
-                            Token::LitteralString(l) => String::from_utf8(l.to_vec()).unwrap(),
-                            t => panic!("Operand {t:?} is not allowed with operator Tj"),
-                        };
-                        return Some(GraphicsInstruction::Tj(text));
-                    }
                     b"TD" => {
                         let tx = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
@@ -470,6 +463,13 @@ impl Iterator for Content<'_> {
                     b"T*" => {
                         self.process_T_star();
                         return Some(GraphicsInstruction::T_star);
+                    }
+                    b"Tj" => {
+                        let text = match &buf[0] {
+                            Token::LitteralString(l) => String::from_utf8(l.to_vec()).unwrap(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tj"),
+                        };
+                        return Some(GraphicsInstruction::Tj(text));
                     }
                     b"TJ" => {
                         return Some(GraphicsInstruction::TJ(
@@ -893,7 +893,7 @@ mod tests {
                 ArrayVal::Text("activation".to_string()),
                 ArrayVal::Pos(Number::Integer(-525)),
                 ArrayVal::Text("record".to_string()),
-                ]))
+            ]))
         );
         assert_eq!(text_stream.next(), None);
     }

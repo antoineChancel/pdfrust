@@ -143,6 +143,10 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
                     break;
                 }
                 Some(Token::String(s)) => panic!("{s:?}"),
+                Some(Token::ArrayBegin) => {
+                    object = Object::Array(Array::try_from(&mut *tokenizer).unwrap());
+                    break;
+                }
                 Some(t) => panic!("Unexpected token found in object; found {:?}", t),
                 None => panic!("Unexpected end of stream found in object"),
             };
