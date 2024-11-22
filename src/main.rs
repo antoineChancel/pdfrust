@@ -19,9 +19,10 @@ impl Config {
                 path: args[2].clone(),
                 flags: match args[1].as_str() {
                     "--text" => pdfrust::Extract::Text,
+                    "--chars" => pdfrust::Extract::Chars,
                     "--font" => pdfrust::Extract::Font,
                     "--raw-content" => pdfrust::Extract::RawContent,
-                    f => panic!("Invalid flag: {f}\nPdfRust currently support:\n\t--text\t\ttext reader\n\t--raw-content\traw pdf content\n\t--font\t\tfont analyzer"),
+                    f => panic!("Invalid flag: {f}\nPdfRust currently support:\n\t--text\t\tformatted text\n\t--chars\t\ttext character font and positionning\n\t--raw-content\traw pdf content\n\t--font\t\tfont analyzer"),
                 },
             },
             _ => panic!("CLI should have 2 or 3 arguments"),

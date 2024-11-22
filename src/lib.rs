@@ -16,6 +16,7 @@ pub mod xref;
 #[derive(Debug, Clone)]
 pub enum Extract {
     Text,
+    Chars,
     Font,
     RawContent,
 }

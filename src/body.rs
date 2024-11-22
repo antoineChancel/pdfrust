@@ -472,31 +472,28 @@ impl Page {
 
     pub fn extract(&self, e: Extract) -> String {
         match e {
-            Extract::Text => self.extract_text(),
+            Extract::Text => self.extract_text(false),
+            Extract::Chars => self.extract_text(true),
             Extract::RawContent => self.extract_stream(),
             Extract::Font => self.extract_font(),
         }
     }
 
-    pub fn extract_font(&self) -> String {
+    fn extract_font(&self) -> String {
         match self.get_resources().font {
             Some(font_map) => font_map.to_string(),
             None => panic!("Missing font in current page resources"),
         }
     }
 
-    pub fn extract_text(&self) -> String {
-        let fontmap = self
-            .get_resources()
-            .font
-            .expect("Missing font in current page resources");
+    fn extract_text(&self, char: bool) -> String {
         let content_bytes = self.extract_stream();
         let mut text_content =
             content::TextContent::new(content_bytes.as_bytes(), self.get_resources());
-        text_content.get_text()
+        text_content.get_text(char)
     }
 
-    pub fn extract_stream(&self) -> String {
+    fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
             Some(stream) => stream.get_data(),

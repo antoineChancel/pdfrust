@@ -604,8 +604,8 @@ impl<'a> TextContent<'a> {
         }
     }
 
-    pub fn get_text(&mut self) -> String {
-        let mut text_formatted = String::new();
+    pub fn get_text(&mut self, char: bool) -> String {
+        let mut output = String::new();
         while let Some(i) = self.content.next() {
             match i {
                 GraphicsInstruction::Tj(text) => {
@@ -617,11 +617,11 @@ impl<'a> TextContent<'a> {
                         None => panic!("Text state should have a font set"),
                     };
                     for c in text {
-                        println!(
-                            "{:?}, {:?}, {:?}, {:}",
-                            c as char, font.subtype, font.base_font, self.content.text_object.tm
-                        );
-                        text_formatted.push(c as char);
+                        if char {
+                            output += format!("{:?}, {:?}, {:?}, {:}\n", c as char, font.subtype, font.base_font, self.content.text_object.tm).as_str();
+                        } else {
+                            output.push(c as char);
+                        }
                     }
                 }
                 GraphicsInstruction::TJ(text) => {
@@ -642,14 +642,11 @@ impl<'a> TextContent<'a> {
                                     Some(to_unicode_cmap) => {
                                         for c in t {
                                             // paint glyph
-                                            println!(
-                                                "{:?}, {:?}, {:?}, {:}",
-                                                to_unicode_cmap.0.get(&usize::from(c)).unwrap(),
-                                                font.subtype,
-                                                font.base_font,
-                                                self.content.text_object.tm
-                                            );
-                                            text_formatted.push(c as char);
+                                            if char {
+                                                output += format!("{:?}, {:?}, {:?}, {:}\n", to_unicode_cmap.0.get(&usize::from(c)).unwrap(), font.subtype, font.base_font, self.content.text_object.tm).as_str();
+                                            } else {
+                                                output.push(*to_unicode_cmap.0.get(&usize::from(c)).unwrap());
+                                            }
                                             // displacement vector
                                             let w0: Number = font.clone().get_width(c);
                                             let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
@@ -687,14 +684,11 @@ impl<'a> TextContent<'a> {
                                     }
                                     None => {
                                         for c in t {
-                                            println!(
-                                                "{:?}, {:?}, {:}, {:}",
-                                                c as char,
-                                                font.subtype,
-                                                font.base_font,
-                                                self.content.text_object.tm
-                                            );
-                                            text_formatted.push(c as char);
+                                            if char {
+                                                output += format!("{:?}, {:?}, {:?}, {:}\n", c as char, font.subtype, font.base_font, self.content.text_object.tm).as_str();
+                                            } else {
+                                                output.push(c as char);
+                                            }
                                             // displacement vector
                                             let w0: Number = font.clone().get_width(c);
                                             let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
@@ -739,7 +733,7 @@ impl<'a> TextContent<'a> {
                 _ => (),
             }
         }
-        text_formatted
+        output
     }
 }
 
