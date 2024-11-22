@@ -17,12 +17,17 @@ Text
 pdfrust <pdf_file>.pdf
 ```
 
-Raw content
+Text characters in tabular format
+```zsh
+pdfrust --chars <pdf_file>.pdf
+```
+
+Page raw content stream
 ```sh
 pdfrust --raw-content <pdf_file>.pdf
 ```
 
-Fonts
+Fonts 
 ```sh
 pdfrust --font <pdf_file>.pdf
 ```

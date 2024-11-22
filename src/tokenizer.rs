@@ -1,7 +1,7 @@
 use core::panic;
-use std::{iter::Peekable, ops::Neg, slice::Iter};
+use std::{char, iter::Peekable, slice::Iter};
 
-use crate::xref::XrefTable;
+use crate::{algebra::Number, xref::XrefTable};
 
 // Tokenizer for PDF objects
 #[derive(Debug)]
@@ -28,31 +28,6 @@ impl WhiteSpace {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Number {
-    Integer(i32),
-    Real(f32),
-}
-
-impl From<Number> for f32 {
-    fn from(value: Number) -> Self {
-        match value {
-            Number::Integer(i) => i as f32,
-            Number::Real(f) => f,
-        }
-    }
-}
-
-impl std::ops::Neg for Number {
-    type Output = Number;
-    fn neg(self) -> Self::Output {
-        match self {
-            Number::Integer(i) => Number::Integer(-i),
-            Number::Real(f) => Number::Real(-f),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
 pub enum Token<'a> {
     Numeric(Number),
@@ -61,7 +36,7 @@ pub enum Token<'a> {
     HexString(Vec<u8>),
     Name(String),
     Comment(Vec<u8>),
-    IndirectRef((i32, i32), &'a XrefTable, &'a [u8]),
+    IndirectRef((i16, i16), &'a XrefTable, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -196,6 +171,22 @@ impl<'a> Tokenizer<'a> {
         }
         self.byte.clone().take(length).copied().collect::<Vec<u8>>()
     }
+
+    fn byte_to_digit(b: &u8) -> u8 {
+        match b {
+            b'0' => 0,
+            b'1' => 1,
+            b'2' => 2,
+            b'3' => 3,
+            b'4' => 4,
+            b'5' => 5,
+            b'6' => 6,
+            b'7' => 7,
+            b'8' => 8,
+            b'9' => 9,
+            _ => panic!(),
+        }
+    }
 }
 
 impl<'a> Iterator for Tokenizer<'a> {
@@ -227,20 +218,35 @@ impl<'a> Iterator for Tokenizer<'a> {
                                     self.byte.next();
                                     return Some(Token::DictBegin);
                                 }
-                                // litteral
-                                Some(_) => {
-                                    let mut buf: Vec<u8> = vec![];
+                                // Hexadecimal characters
+                                Some(
+                                    b'0' | b'1' | b'2' | b'3' | b'4' | b'5' | b'6' | b'7' | b'8'
+                                    | b'9' | b'A' | b'B' | b'C' | b'D' | b'E' | b'F' | b'a' | b'b'
+                                    | b'c' | b'd' | b'e' | b'f',
+                                ) => {
+                                    let mut buf: String = String::new();
                                     loop {
                                         match self.byte.next() {
                                             Some(b'>') => break,
-                                            Some(a) => buf.push(*a),
+                                            Some(a) => buf.push(*a as char),
                                             None => panic!(
-                                                "Reached end of stream before enf of litteral"
+                                                "Reached end of stream before end of hexadecimal string delimiter was found"
                                             ),
                                         }
                                     }
-                                    return Some(Token::HexString(buf));
+                                    // HexString should contain a pair number of characters to be valid
+                                    if buf.len() % 2 == 1 {
+                                        buf.push('0');
+                                    }
+                                    // println!("{:?}", &buf);
+                                    // Decode hex to u8
+                                    let buf_decoded: Vec<u8> = (0..buf.len())
+                                        .step_by(2)
+                                        .map(|i| u8::from_str_radix(&buf[i..i + 2], 16).unwrap())
+                                        .collect();
+                                    return Some(Token::HexString(buf_decoded));
                                 }
+                                Some(b) => panic!("Character {b:} is not interpreted as hexstring"),
                                 None => panic!("No character following '<'"),
                             },
                             b'>' => match self.byte.peek() {
@@ -267,25 +273,49 @@ impl<'a> Iterator for Tokenizer<'a> {
                         }
                         return Some(Token::Name(buf));
                     }
+                    // litteral string
                     Delimiter::String => {
                         let mut buf: Vec<u8> = vec![];
                         // nested parentesis counters
                         let mut opened_parathesis: u8 = 1;
                         let mut closed_parathesis: u8 = 0;
-                        for cursor in self.byte.by_ref() {
-                            if let CharacterSet::Delimiter(Delimiter::String) =
-                                CharacterSet::from(cursor)
-                            {
-                                if *cursor == b'(' {
-                                    opened_parathesis += 1;
-                                } else if *cursor == b')' {
-                                    closed_parathesis += 1;
-                                }
-                                if opened_parathesis == closed_parathesis {
-                                    break;
-                                }
-                            }
-                            buf.push(*cursor);
+                        while let Some(cursor) = self.byte.next() {
+                            match cursor {
+                                b'(' => opened_parathesis += 1,
+                                b')' => closed_parathesis += 1,
+                                _ => (),
+                            };
+                            if opened_parathesis == closed_parathesis {
+                                break;
+                            };
+                            let c = match cursor {
+                                // table 3.2, page 54
+                                b'\\' => match self.byte.next() {
+                                    Some(c) => match c {
+                                        b'n' => b'\n',
+                                        b'r' => b'\r',
+                                        b't' => b'\t',
+                                        b'b' => 8,
+                                        b'f' => 12,
+                                        b'\\' => b'\\',
+                                        b'(' => b'(',
+                                        b')' => b')',
+                                        b'0'..=b'9' => {
+                                            // convert octal digit to u8
+                                            let c = Tokenizer::byte_to_digit(c);
+                                            let d =
+                                                Tokenizer::byte_to_digit(self.byte.next().unwrap());
+                                            let e =
+                                                Tokenizer::byte_to_digit(self.byte.next().unwrap());
+                                            ((c * 8) + d * 8) + e
+                                        }
+                                        c => *c,
+                                    },
+                                    None => continue,
+                                },
+                                b => *b,
+                            };
+                            buf.push(c)
                         }
                         return Some(Token::LitteralString(buf));
                     }
@@ -309,7 +339,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                     if is_numeric {
                         let numeric = std::str::from_utf8(&buf).unwrap();
-                        match numeric.parse::<i32>() {
+                        match numeric.parse::<i16>() {
                             Ok(n) => return Some(Token::Numeric(Number::Integer(n))),
                             Err(_) => {
                                 if let Ok(n) = numeric.parse::<f32>() {
@@ -350,6 +380,12 @@ mod tests {
     }
 
     #[test]
+    fn test_litteral_string_octal() {
+        let mut pdf = Tokenizer::new(b"(\\003)", 0);
+        assert_eq!(pdf.next(), Some(Token::LitteralString(vec![3])))
+    }
+
+    #[test]
     fn test_pdfbytes_iterator_litteral_string() {
         let mut pdf = Tokenizer::new(b"(Hello World)", 0);
         assert_eq!(
@@ -373,7 +409,8 @@ mod tests {
         assert_eq!(
             pdf.next(),
             Some(Token::HexString(
-                b"4E6F762073686D6F7A206B6120706F702E".to_vec()
+                [78, 111, 118, 32, 115, 104, 109, 111, 122, 32, 107, 97, 32, 112, 111, 112, 46]
+                    .to_vec()
             ))
         );
     }

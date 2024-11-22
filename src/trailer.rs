@@ -1,7 +1,8 @@
 use crate::{
+    algebra::Number,
     body::Catalog,
     info::Info,
-    object::{Array, Dictionary, IndirectObject, Number, Object},
+    object::{Array, Dictionary, IndirectObject, Object},
     xref::XrefTable,
     Extract,
 };
@@ -111,8 +112,14 @@ mod test {
         assert_eq!(
             trailer.id,
             Some(vec![
-                Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string()),
-                Object::String("4e949515aaf132498f650e7bde6cdc2f".to_string())
+                Object::HexString(
+                    [78, 148, 149, 21, 170, 241, 50, 73, 143, 101, 14, 123, 222, 108, 220, 47]
+                        .to_vec()
+                ),
+                Object::HexString(
+                    [78, 148, 149, 21, 170, 241, 50, 73, 143, 101, 14, 123, 222, 108, 220, 47]
+                        .to_vec()
+                ),
             ])
         );
     }

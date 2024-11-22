@@ -44,11 +44,19 @@ impl From<Dictionary<'_>> for Info {
             },
             creator: match value.get("Creator") {
                 Some(Object::String(s)) => Some(String::from(s)),
+                Some(Object::HexString(s)) => Some(match std::str::from_utf8(s) {
+                    Ok(s) => String::from(s),
+                    Err(..) => String::new(), // in case of unable to read hexstring
+                }),
                 None => None,
                 _ => panic!("Creator should be a string"),
             },
             producer: match value.get("Producer") {
                 Some(Object::String(s)) => Some(String::from(s)),
+                Some(Object::HexString(s)) => Some(match std::str::from_utf8(s) {
+                    Ok(s) => String::from(s),
+                    Err(..) => String::new(), // in case of unable to read hexstring
+                }),
                 None => None,
                 _ => panic!("Producer should be a string"),
             },

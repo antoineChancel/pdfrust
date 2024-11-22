@@ -7,10 +7,11 @@ use std::{
 };
 
 use crate::{
+    algebra::Number,
     cmap::ToUnicodeCMap,
     content,
     filters::flate_decode,
-    object::{Array, Dictionary, Name, Number, Object},
+    object::{Array, Dictionary, Name, Object},
     xref::XrefTable,
     Extract,
 };
@@ -146,19 +147,62 @@ impl PageTreeKids {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Font {
-    subtype: Name,
+    pub subtype: Name,
     name: Option<Name>,
-    base_font: Name,
-    first_char: Option<Number>,
-    last_char: Option<Number>,
+    pub base_font: Name,
+    first_char: Option<Number>, // Number -> Integer
+    last_char: Option<Number>,  // Number -> Integer
+    widths: Option<Vec<Number>>,
     pub to_unicode: Option<ToUnicodeCMap>,
+}
+
+impl Font {
+
+    pub fn estimate_space_width(&self) -> Number {
+        match self.get_width(b' ') {
+            Ok(space_width) => space_width,
+            Err(_) => match self.average_width() {
+                Ok(average_width) => average_width,
+                Err(_) => Number::Integer(200)
+            }
+        }
+    }
+
+    fn average_width(&self) -> Result<Number, &str> {
+        if let Some(widths) = &self.widths {
+            let mut sum = Number::Real(0.0);
+            for n in widths {
+                sum = sum + n.clone();
+            };
+            Ok(sum / Number::Integer(widths.len() as i16) / Number::Real(1000.0))
+        } else {
+            Err("Font does not contain widths")
+        }
+    }
+    
+    // horizontal displacement
+    pub fn get_width(&self, c: u8) -> Result<Number, &str> {
+        if let Some(Number::Integer(first_char)) = &self.first_char {
+            if i16::from(c) < *first_char {
+                return Err("Cannot get character width from the current font range")
+            }
+        }
+        let c_offset: usize = usize::from(c) - usize::from(self.first_char.clone().unwrap());
+        match &self.widths {
+            Some(widths) => match widths.get(c_offset) {
+                Some(n) => Ok(n.clone() / Number::Real(1000.0)), // cf note on TJ in page 408
+                _ => Err("Width of char was not found in the range"),
+            },
+            None => Err("No character widths in the current font"),
+        }
+    }
 }
 
 impl Display for Font {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.to_unicode
+            "Subtype: {:?}\nName: {:?}\nBaseFont: {:?}\nFirstChar: {:?}\nLastChar: {:?}\nWidths: {:?}\nToUnicode: {:?}", self.subtype, self.name, self.base_font, self.first_char, self.last_char, self.widths, self.to_unicode
         )
     }
 }
@@ -196,6 +240,32 @@ impl From<Dictionary<'_>> for Font {
             last_char: match value.get("LastChar") {
                 Some(Object::Numeric(n)) => Some(n.clone()),
                 Some(o) => panic!("LastChar should be a numeric object, found {o:?}"),
+                None => None,
+            },
+            widths: match value.get("Widths") {
+                Some(Object::Ref((obj, gen), xref, bytes)) => {
+                    match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => match Object::new(bytes, address, xref) {
+                            Object::Array(a) => Some(a.iter().map(|o| match o {
+                                Object::Numeric(n) => n.clone(),
+                                o => panic!("Widths should be an array containing only numbers, found {o:?}")
+                            }).collect()),
+                            o => panic!("ToUnicode should be a stream object, found {o:?}"),
+                        },
+                        None => panic!("ToUnicode stream object not found in xref table"),
+                    }
+                }
+                Some(Object::Array(a)) => Some(
+                    a.iter()
+                        .map(|o| match o {
+                            Object::Numeric(n) => n.clone(),
+                            o => panic!(
+                                "Widths should be an array containing only numbers, found {o:?}"
+                            ),
+                        })
+                        .collect(),
+                ),
+                Some(o) => panic!("Widths should be an array of objects, found {o:?}"),
                 None => None,
             },
             to_unicode: match value.get("ToUnicode") {
@@ -253,9 +323,9 @@ impl From<Dictionary<'_>> for FontMap {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct Resources {
-    font: Option<FontMap>,
+    pub font: Option<FontMap>,
 }
 
 impl Resources {
@@ -424,28 +494,28 @@ impl Page {
 
     pub fn extract(&self, e: Extract) -> String {
         match e {
-            Extract::Text => self.extract_text(),
+            Extract::Text => self.extract_text(false),
+            Extract::Chars => self.extract_text(true),
             Extract::RawContent => self.extract_stream(),
             Extract::Font => self.extract_font(),
         }
     }
 
-    pub fn extract_font(&self) -> String {
+    fn extract_font(&self) -> String {
         match self.get_resources().font {
             Some(font_map) => font_map.to_string(),
             None => panic!("Missing font in current page resources"),
         }
     }
 
-    pub fn extract_text(&self) -> String {
-        let fontmap = self
-            .get_resources()
-            .font
-            .expect("Missing font in current page resources");
-        content::TextContent::from(self.extract_stream().as_bytes()).get_text(fontmap)
+    fn extract_text(&self, char: bool) -> String {
+        let content_bytes = self.extract_stream();
+        let mut text_content =
+            content::TextContent::new(content_bytes.as_bytes(), self.get_resources());
+        text_content.get_text(char)
     }
 
-    pub fn extract_stream(&self) -> String {
+    fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
             Some(stream) => stream.get_data(),

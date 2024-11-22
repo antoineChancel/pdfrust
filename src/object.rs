@@ -1,11 +1,11 @@
 // PDF basic objects
-pub use crate::tokenizer::{Lemmatizer, Number, Token};
+pub use crate::tokenizer::{Lemmatizer, Token};
 use std::collections::HashMap;
 
-use crate::xref::XrefTable;
+use crate::{algebra::Number, xref::XrefTable};
 
 pub type Name = String;
-pub type IndirectObject = (i32, i32);
+pub type IndirectObject = (i16, i16);
 pub type Array<'a> = Vec<Object<'a>>;
 pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 
@@ -28,6 +28,7 @@ pub enum Object<'a> {
     Array(Array<'a>),
     Name(Name),
     String(String),
+    HexString(Vec<u8>),
     Numeric(Number),
     Ref(IndirectObject, &'a XrefTable, &'a [u8]),
 }
@@ -69,9 +70,7 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Dictionary<'a> {
                         Some(Token::String(s)) => {
                             Object::Name(String::from(std::str::from_utf8(&s).unwrap()))
                         }
-                        Some(Token::HexString(s)) => {
-                            Object::String(String::from(std::str::from_utf8(&s).unwrap()))
-                        }
+                        Some(Token::HexString(s)) => Object::HexString(s),
                         Some(Token::Name(n)) => Object::Name(n),
                         Some(Token::Numeric(n)) => Object::Numeric(n),
                         Some(Token::IndirectRef((obj, gen), xref, bytes)) => {
@@ -143,6 +142,10 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
                     break;
                 }
                 Some(Token::String(s)) => panic!("{s:?}"),
+                Some(Token::ArrayBegin) => {
+                    object = Object::Array(Array::try_from(&mut *tokenizer).unwrap());
+                    break;
+                }
                 Some(t) => panic!("Unexpected token found in object; found {:?}", t),
                 None => panic!("Unexpected end of stream found in object"),
             };
@@ -174,9 +177,7 @@ impl<'a> TryFrom<Token<'a>> for Object<'a> {
             Token::LitteralString(s) => Ok(Object::String(String::from(
                 std::str::from_utf8(&s).unwrap(),
             ))),
-            Token::HexString(s) => Ok(Object::String(String::from(
-                std::str::from_utf8(&s).unwrap(),
-            ))),
+            Token::HexString(s) => Ok(Object::HexString(s)),
             Token::IndirectRef((obj, gen), xref, bytes) => Ok(Object::Ref((obj, gen), xref, bytes)),
             t => panic!("Unexpected token found in object{t:?}"),
         }
@@ -235,8 +236,20 @@ mod tests {
                 assert_eq!(
                     d.get(&String::from("ID")),
                     Some(&Object::Array(vec![
-                        Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23")),
-                        Object::String(String::from("6285DCD147BBD7C07D63844C37B01D23"))
+                        Object::HexString(
+                            [
+                                98, 133, 220, 209, 71, 187, 215, 192, 125, 99, 132, 76, 55, 176,
+                                29, 35
+                            ]
+                            .to_vec()
+                        ),
+                        Object::HexString(
+                            [
+                                98, 133, 220, 209, 71, 187, 215, 192, 125, 99, 132, 76, 55, 176,
+                                29, 35
+                            ]
+                            .to_vec()
+                        )
                     ]))
                 );
                 assert_eq!(
