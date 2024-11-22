@@ -157,21 +157,43 @@ pub struct Font {
 }
 
 impl Font {
+
+    pub fn estimate_space_width(&self) -> Number {
+        match self.get_width(b' ') {
+            Ok(space_width) => space_width,
+            Err(_) => match self.average_width() {
+                Ok(average_width) => average_width,
+                Err(_) => Number::Integer(200)
+            }
+        }
+    }
+
+    fn average_width(&self) -> Result<Number, &str> {
+        if let Some(widths) = &self.widths {
+            let mut sum = Number::Real(0.0);
+            for n in widths {
+                sum = sum + n.clone();
+            };
+            Ok(sum / Number::Integer(widths.len() as i16) / Number::Real(1000.0))
+        } else {
+            Err("Font does not contain widths")
+        }
+    }
+    
     // horizontal displacement
-    pub fn get_width(&self, c: u8) -> Number {
+    pub fn get_width(&self, c: u8) -> Result<Number, &str> {
+        if let Some(Number::Integer(first_char)) = &self.first_char {
+            if i16::from(c) < *first_char {
+                return Err("Cannot get character width from the current font range")
+            }
+        }
         let c_offset: usize = usize::from(c) - usize::from(self.first_char.clone().unwrap());
-        // let l = char::from_u32(u32::from_str_radix("003", 8).unwrap()).unwrap();
-        // println!("{:?}", l);
-        // panic!("{:?}", l as usize);
         match &self.widths {
             Some(widths) => match widths.get(c_offset) {
-                Some(n) => n.clone(),
-                _ => panic!(
-                    "Width of char {:?} with index {:?} was not found in {:?}",
-                    c as char, c, self
-                ),
+                Some(n) => Ok(n.clone() / Number::Real(1000.0)), // cf note on TJ in page 408
+                _ => Err("Width of char was not found in the range"),
             },
-            None => Number::Integer(0),
+            None => Err("No character widths in the current font"),
         }
     }
 }

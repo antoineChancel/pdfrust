@@ -143,6 +143,13 @@ mod tests {
     fn test_matrix_mul() {
         let id = Matrix::default();
         let m1 = Matrix::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
-        assert_eq!(m1.clone() * id, m1)
+        assert_eq!(m1 * id, m1)
+    }
+
+    #[test]
+    fn test_matrix_mul_2() {
+        let m1 = Matrix::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+        let m2 = Matrix::new(1.0, 2.0, 3.0, 4.0, 5.0, 6.0);
+        assert_eq!(m1 * m2, Matrix::new(7.0, 10.0, 15.0, 22.0, 28.0, 40.0))
     }
 }
