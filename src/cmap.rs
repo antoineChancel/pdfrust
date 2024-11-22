@@ -23,18 +23,14 @@ impl From<String> for ToUnicodeCMap {
 
             // key number in hex
             let key = match tokenizer.next() {
-                Some(Token::HexString(x)) => {
-                    usize::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap()
-                }
+                Some(Token::HexString(x)) => x[0] as usize,
                 Some(t) => panic!("CMap key should be an hex string, found {t:?}"),
                 None => panic!("CMap unreadable because end of cmap file is reached"),
             };
 
             // unicode character encoded in hex
             let val = match tokenizer.next() {
-                Some(Token::HexString(x)) => {
-                    char::from(u8::from_str_radix(std::str::from_utf8(&x).unwrap(), 16).unwrap())
-                }
+                Some(Token::HexString(x)) => x[1] as char,
                 Some(t) => panic!("CMap val should be an hex string, found {t:?}"),
                 None => panic!("CMap unreadable because end of cmap file is reached"),
             };

@@ -7,10 +7,11 @@ use std::{
 };
 
 use crate::{
+    algebra::Number,
     cmap::ToUnicodeCMap,
     content,
     filters::flate_decode,
-    object::{Array, Dictionary, Name, Number, Object},
+    object::{Array, Dictionary, Name, Object},
     xref::XrefTable,
     Extract,
 };
@@ -146,13 +147,33 @@ impl PageTreeKids {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Font {
-    subtype: Name,
+    pub subtype: Name,
     name: Option<Name>,
-    base_font: Name,
-    first_char: Option<Number>,
-    last_char: Option<Number>,
+    pub base_font: Name,
+    first_char: Option<Number>, // Number -> Integer
+    last_char: Option<Number>,  // Number -> Integer
     widths: Option<Vec<Number>>,
     pub to_unicode: Option<ToUnicodeCMap>,
+}
+
+impl Font {
+    // horizontal displacement
+    pub fn get_width(&self, c: u8) -> Number {
+        let c_offset: usize = usize::from(c) - usize::from(self.first_char.clone().unwrap());
+        // let l = char::from_u32(u32::from_str_radix("003", 8).unwrap()).unwrap();
+        // println!("{:?}", l);
+        // panic!("{:?}", l as usize);
+        match &self.widths {
+            Some(widths) => match widths.get(c_offset) {
+                Some(n) => n.clone(),
+                _ => panic!(
+                    "Width of char {:?} with index {:?} was not found in {:?}",
+                    c as char, c, self
+                ),
+            },
+            None => Number::Integer(0),
+        }
+    }
 }
 
 impl Display for Font {
@@ -280,9 +301,9 @@ impl From<Dictionary<'_>> for FontMap {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Default)]
 pub struct Resources {
-    font: Option<FontMap>,
+    pub font: Option<FontMap>,
 }
 
 impl Resources {
@@ -469,7 +490,10 @@ impl Page {
             .get_resources()
             .font
             .expect("Missing font in current page resources");
-        content::TextContent::from(self.extract_stream().as_bytes()).get_text(fontmap)
+        let content_bytes = self.extract_stream();
+        let mut text_content =
+            content::TextContent::new(content_bytes.as_bytes(), self.get_resources());
+        text_content.get_text()
     }
 
     pub fn extract_stream(&self) -> String {

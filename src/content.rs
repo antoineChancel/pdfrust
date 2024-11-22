@@ -1,10 +1,9 @@
 use core::iter::Iterator;
-use std::num::ParseIntError;
 
 use crate::{
-    algebra::Matrix,
-    body::FontMap,
-    tokenizer::{Number, Token, Tokenizer},
+    algebra::{Matrix, Number},
+    body::Resources,
+    tokenizer::{Token, Tokenizer},
 };
 
 #[derive(Default)]
@@ -22,7 +21,7 @@ struct Content<'a> {
 
 #[derive(Debug, PartialEq)]
 enum ArrayVal {
-    Text(String),
+    Text(Vec<u8>),
     Pos(Number),
 }
 
@@ -73,7 +72,7 @@ enum GraphicsInstruction {
     // Text state operators (page 398)
     Tf(String, Number), // text font
     // Text-showing operators (page 407)
-    Tj(String),        // show text string
+    Tj(Vec<u8>),       // show text string
     TJ(Vec<ArrayVal>), // show text array
     // Text object operator (page 405)
     BeginText,
@@ -117,7 +116,7 @@ impl Content<'_> {
     }
 
     fn process_cm(&mut self, cm: [Number; 6]) {
-        self.graphic_state.ctm = cm;
+        self.graphic_state.ctm = Matrix::from(cm);
     }
 
     fn process_w(&mut self, line_width: Number) {
@@ -141,7 +140,7 @@ impl Content<'_> {
     fn process_re(&mut self, x: Number, y: Number, width: Number, height: Number) {}
 
     fn process_BT(&mut self) {
-        self.graphic_state.text_state = TextState::default();
+        self.text_object = TextObject::default();
     }
 
     fn process_Td(&mut self, tx: Number, ty: Number) {
@@ -466,10 +465,10 @@ impl Iterator for Content<'_> {
                     }
                     b"Tj" => {
                         let text = match &buf[0] {
-                            Token::LitteralString(l) => String::from_utf8(l.to_vec()).unwrap(),
+                            Token::LitteralString(l) => l,
                             t => panic!("Operand {t:?} is not allowed with operator Tj"),
                         };
-                        return Some(GraphicsInstruction::Tj(text));
+                        return Some(GraphicsInstruction::Tj(text.to_vec()));
                     }
                     b"TJ" => {
                         return Some(GraphicsInstruction::TJ(
@@ -483,12 +482,8 @@ impl Iterator for Content<'_> {
                                     )
                                 })
                                 .map(|t| match t {
-                                    Token::LitteralString(s) => {
-                                        ArrayVal::Text(String::from_utf8(s.to_vec()).unwrap())
-                                    }
-                                    Token::HexString(s) => {
-                                        ArrayVal::Text(String::from_utf8(s.to_vec()).unwrap())
-                                    }
+                                    Token::LitteralString(s) => ArrayVal::Text(s.to_vec()),
+                                    Token::HexString(s) => ArrayVal::Text(s.to_vec()),
                                     Token::Numeric(n) => ArrayVal::Pos(n.clone()),
                                     t => panic!("Impossible {t:?}"),
                                 })
@@ -525,7 +520,7 @@ struct TextState {
     Tfs: Option<Number>, // text font size
     Tmode: Number,       // text rendering mode
     Trise: Number,       // text rise
-    Tk: Option<Number>,  // text knockout
+    Tk: bool,            // text knockout
 }
 
 impl Default for TextState {
@@ -539,7 +534,7 @@ impl Default for TextState {
             Tfs: None,
             Tmode: Number::Integer(0),
             Trise: Number::Integer(0),
-            Tk: None,
+            Tk: true,
         }
     }
 }
@@ -547,7 +542,7 @@ impl Default for TextState {
 #[derive(Clone)]
 struct GraphicsState {
     // device-independant state
-    ctm: [Number; 6], // current transformation matrix
+    ctm: Matrix, // current transformation matrix
     // TODO: clipping_path,
     color_space: String, // current color space
     // TODO: color,
@@ -577,14 +572,7 @@ struct GraphicsState {
 impl Default for GraphicsState {
     fn default() -> Self {
         Self {
-            ctm: [
-                Number::Integer(1),
-                Number::Integer(0),
-                Number::Integer(0),
-                Number::Integer(1),
-                Number::Integer(0),
-                Number::Integer(0),
-            ],
+            ctm: Matrix::default(), // identity matrix
             color_space: String::from("DeviceGray"),
             text_state: TextState::default(),
             line_width: Number::Real(1.0),
@@ -603,104 +591,162 @@ impl Default for GraphicsState {
     }
 }
 
-pub struct TextContent {
-    text: String,
+pub struct TextContent<'a> {
+    resources: Box<Resources>,
+    content: Content<'a>,
 }
 
-impl From<&[u8]> for TextContent {
-    fn from(value: &[u8]) -> Self {
-        let instructions = Content::from(Tokenizer::new(value, 0));
-        TextContent {
-            text: instructions
-                .filter(|e| matches!(e, GraphicsInstruction::Tj(_) | GraphicsInstruction::TJ(_)))
-                .map(|i| match i {
-                    GraphicsInstruction::Tj(s) => s,
-                    GraphicsInstruction::TJ(v) => v
-                        .iter()
-                        .filter(|e| matches!(e, ArrayVal::Text(_)))
-                        .map(|s| match s {
-                            ArrayVal::Text(s) => s.clone(),
-                            _ => String::new(),
-                        })
-                        .collect::<Vec<String>>()
-                        .join(""),
-                    _ => String::new(),
-                })
-                .collect::<Vec<String>>()
-                .join("\n"),
+impl<'a> TextContent<'a> {
+    pub fn new(content_bytes: &'a [u8], resources: Box<Resources>) -> Self {
+        Self {
+            resources,
+            content: Content::from(Tokenizer::new(content_bytes, 0)),
         }
     }
-}
 
-impl TextContent {
-    pub fn decode_hex(hexstring: &str) -> Result<Vec<u8>, ParseIntError> {
-        (0..hexstring.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&hexstring[i..i + 2], 16))
-            .collect()
-    }
-
-    pub fn get_text(&self, fontmap: FontMap) -> String {
-        self.text.clone()
-        // self.text
-        //     .iter()
-        //     .map(|t| {
-        //         // collect font informations for the current text object content
-        //         let font = match &t.t_f {
-        //             Some(text_font) => fontmap.0.get(&text_font.0),
-        //             None => None,
-        //         };
-        //         if let Some(ref v) = t.t_upper_j {
-        //             return v
-        //                 .iter()
-        //                 .map(|elem| match elem {
-        //                     PdfString::Litteral(s) => s.clone(),
-        //                     PdfString::HexString(s) => {
-        //                         let hex_bytes = Content::decode_hex(s).expect("Unable to decode hexstring to bytes");
-        //                         let mut s= String::new();
-        //                         match font {
-        //                             Some(f) => {
-        //                                 // if to unicode mapping exists, hex characters are mapped
-        //                                 if let Some(to_unicode) = &f.to_unicode {
-        //                                     for char_key in hex_bytes {
-        //                                         let char_key = char_key as usize;
-        //                                         match to_unicode.0.get(&char_key) {
-        //                                             Some(char_val) => s.push(*char_val),
-        //                                             None => {
-        //                                                 panic!("Char with hex code {char_key} was not found")
-        //                                             }
-        //                                         }
-        //                                     }
-        //                                 } else {
-        //                                     for c in hex_bytes {
-        //                                         s.push(char::from(c))
-        //                                     }
-        //                                 }
-        //                             }
-        //                             None => for c in hex_bytes {
-        //                                 s.push(char::from(c))
-        //                             },
-        //                         };
-        //                         s
-        //                     }
-        //                 })
-        //                 .collect::<Vec<String>>()
-        //                 .join("");
-        //         };
-        //         match &t.t_j {
-        //             Some(s) => s.clone() + "\n",
-        //             // Text does not contains TJ or Tj operator
-        //             None => "".to_string(),
-        //         }
-        //     })
-        //     .collect()
+    pub fn get_text(&mut self) -> String {
+        let mut text_formatted = String::new();
+        while let Some(i) = self.content.next() {
+            match i {
+                GraphicsInstruction::Tj(text) => {
+                    let font = match self.content.graphic_state.text_state.Tf {
+                        Some(ref s) => match &self.resources.font {
+                            Some(fontmap) => fontmap.0.get(s).unwrap(),
+                            None => panic!("Fontmap does not contains the font name {s:?}"),
+                        },
+                        None => panic!("Text state should have a font set"),
+                    };
+                    for c in text {
+                        println!(
+                            "{:?}, {:?}, {:?}, {:}",
+                            c as char, font.subtype, font.base_font, self.content.text_object.tm
+                        );
+                        text_formatted.push(c as char);
+                    }
+                }
+                GraphicsInstruction::TJ(text) => {
+                    // current font
+                    let font = match self.content.graphic_state.text_state.Tf {
+                        Some(ref s) => match &self.resources.font {
+                            Some(fontmap) => fontmap.0.get(s).unwrap(),
+                            None => panic!("Fontmap does not contains the font name {s:?}"),
+                        },
+                        None => panic!("Text state should have a font set"),
+                    };
+                    let mut tj = Number::Real(0.0);
+                    for c in text {
+                        match c {
+                            ArrayVal::Text(t) => {
+                                // string characters in to unicode map
+                                match &font.to_unicode {
+                                    Some(to_unicode_cmap) => {
+                                        for c in t {
+                                            // paint glyph
+                                            println!(
+                                                "{:?}, {:?}, {:?}, {:}",
+                                                to_unicode_cmap.0.get(&usize::from(c)).unwrap(),
+                                                font.subtype,
+                                                font.base_font,
+                                                self.content.text_object.tm
+                                            );
+                                            text_formatted.push(c as char);
+                                            // displacement vector
+                                            let w0: Number = font.clone().get_width(c);
+                                            let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
+                                            let tfs = match &self.content.graphic_state.text_state.Tfs {
+                                                Some(n) => n,
+                                                None => panic!("Font size should be set before painting a glyph")
+                                            };
+                                            let tc =
+                                                self.content.graphic_state.text_state.Tc.clone();
+                                            let tw =
+                                                self.content.graphic_state.text_state.Tw.clone();
+                                            let th =
+                                                self.content.graphic_state.text_state.Th.clone();
+                                            // update text matrix (page 410)
+                                            // translation vector coordinates
+                                            let tx = ((w0 + -tj.clone() / Number::Real(1000.0))
+                                                * tfs.clone()
+                                                + tc.clone()
+                                                + tw.clone())
+                                                * th;
+                                            let ty = (w1 + -tj.clone() / Number::Real(1000.0))
+                                                * tfs.clone()
+                                                + tc
+                                                + tw;
+                                            self.content.text_object.tm =
+                                                Matrix::new(
+                                                    1.0,
+                                                    0.0,
+                                                    0.0,
+                                                    1.0,
+                                                    tx.into(),
+                                                    ty.into(),
+                                                ) * self.content.text_object.tm;
+                                        }
+                                    }
+                                    None => {
+                                        for c in t {
+                                            println!(
+                                                "{:?}, {:?}, {:}, {:}",
+                                                c as char,
+                                                font.subtype,
+                                                font.base_font,
+                                                self.content.text_object.tm
+                                            );
+                                            text_formatted.push(c as char);
+                                            // displacement vector
+                                            let w0: Number = font.clone().get_width(c);
+                                            let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
+                                            let tfs = match &self.content.graphic_state.text_state.Tfs {
+                                                Some(n) => n,
+                                                None => panic!("Font size should be set before painting a glyph")
+                                            };
+                                            let tc =
+                                                self.content.graphic_state.text_state.Tc.clone();
+                                            let tw =
+                                                self.content.graphic_state.text_state.Tw.clone();
+                                            let th =
+                                                self.content.graphic_state.text_state.Th.clone();
+                                            // update text matrix (page 410)
+                                            // translation vector coordinates
+                                            let tx = ((w0 + -tj.clone() / Number::Real(1000.0))
+                                                * tfs.clone()
+                                                + tc.clone()
+                                                + tw.clone())
+                                                * th;
+                                            let ty = (w1 + -tj.clone() / Number::Real(1000.0))
+                                                * tfs.clone()
+                                                + tc
+                                                + tw;
+                                            self.content.text_object.tm =
+                                                Matrix::new(
+                                                    1.0,
+                                                    0.0,
+                                                    0.0,
+                                                    1.0,
+                                                    tx.into(),
+                                                    ty.into(),
+                                                ) * self.content.text_object.tm;
+                                        }
+                                    }
+                                };
+                            }
+                            ArrayVal::Pos(n) => tj = n.clone(),
+                        }
+                    }
+                }
+                _ => (),
+            }
+        }
+        text_formatted
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::object::Array;
+    use std::vec;
 
     use super::*;
 
@@ -725,7 +771,7 @@ mod tests {
         );
         assert_eq!(
             stream.next(),
-            Some(GraphicsInstruction::Tj("Hello, world!".to_string()))
+            Some(GraphicsInstruction::Tj(b"Hello, world!".to_vec()))
         );
         assert_eq!(stream.next(), Some(GraphicsInstruction::EndText));
         assert_eq!(stream.next(), None);
@@ -735,118 +781,33 @@ mod tests {
     fn test_stream_hexstrings() {
         let raw = b"[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ".as_slice();
         let mut stream = Content::from(raw);
-        // assert_eq!(stream.next(), Some(GraphicsInstruction::TJ(Vec)));
+        assert_eq!(
+            stream.next(),
+            Some(GraphicsInstruction::TJ(vec![
+                ArrayVal::Text(vec![24]),
+                ArrayVal::Pos(Number::Integer(14)),
+                ArrayVal::Text(vec![13]),
+                ArrayVal::Pos(Number::Integer(2)),
+                ArrayVal::Text(vec![6]),
+                ArrayVal::Pos(Number::Integer(7)),
+                ArrayVal::Text(vec![20]),
+                ArrayVal::Pos(Number::Integer(1)),
+                ArrayVal::Text(vec![4]),
+                ArrayVal::Pos(Number::Integer(-4)),
+                ArrayVal::Text(vec![3]),
+                ArrayVal::Pos(Number::Integer(21)),
+                ArrayVal::Text(vec![2]),
+                ArrayVal::Pos(Number::Integer(1)),
+                ArrayVal::Text(vec![6]),
+                ArrayVal::Pos(Number::Integer(-2)),
+                ArrayVal::Text(vec![4]),
+                ArrayVal::Pos(Number::Integer(-4)),
+                ArrayVal::Text(vec![2]),
+                ArrayVal::Pos(Number::Integer(1)),
+                ArrayVal::Text(vec![9, 6]),
+            ]))
+        );
     }
-
-    #[test]
-    fn test_text_single() {
-        let raw = b"BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET".as_slice();
-        let text = TextContent::from(raw);
-        assert_eq!(text.text, "Hello, world!".to_string());
-    }
-
-    // #[test]
-    // fn test_text_hexstrings() {
-    //     let raw =  b"BT\n56.8 706.189 Td /F1 10 Tf[<18>14<0D>2<06>7<14>1<04>-4<03>21<02>1<06>-2<04>-4<02>1<0906>]TJ\nET".as_slice();
-    //     let text = Text::from(raw);
-    //     assert_eq!(text.t_d, Some((Number::Real(56.8), Number::Real(706.189))));
-    //     assert_eq!(text.t_f, Some(("F1".to_string(), Number::Integer(10))));
-    //     assert_eq!(
-    //         text.t_upper_j,
-    //         Some(vec![
-    //             PdfString::HexString("18".to_string()),
-    //             PdfString::HexString("0D".to_string()),
-    //             PdfString::HexString("06".to_string()),
-    //             PdfString::HexString("14".to_string()),
-    //             PdfString::HexString("04".to_string()),
-    //             PdfString::HexString("03".to_string()),
-    //             PdfString::HexString("02".to_string()),
-    //             PdfString::HexString("06".to_string()),
-    //             PdfString::HexString("04".to_string()),
-    //             PdfString::HexString("02".to_string()),
-    //             PdfString::HexString("0906".to_string())
-    //         ])
-    //     );
-    // }
-
-    //     #[test]
-    //     fn test_text_multiple() {
-    //         let raw = b"BT 12 0 0 -12 72 688 Tm /F3.0 1 Tf [ (eget)
-    // -27 ( ) -30 (dui.) 47 ( ) -104 (Phasellus) -43 ( ) -13 (congue.) 42 ( ) -99
-    // (Aenean) 54 ( ) -111 (est) -65 ( ) 8 (erat,) 29 ( ) -86 (tincidunt) -54 ( )
-    // -3 (eget,) 31 ( ) -88 (venenatis) 5 ( ) -62 (quis,) 61 ( ) -118 (commodo)
-    // -11 ( ) -46 (at, ) ] TJ ET"
-    //             .as_slice();
-    //         let text = Content::from(raw);
-    //         assert_eq!(
-    //             text.t_m,
-    //             Some((
-    //                 Number::Integer(12),
-    //                 Number::Integer(0),
-    //                 Number::Integer(0),
-    //                 Number::Integer(-12),
-    //                 Number::Integer(72),
-    //                 Number::Integer(688)
-    //             ))
-    //         );
-    //         assert_eq!(text.t_f, Some(("F3.0".to_string(), Number::Integer(1))));
-    //         assert_eq!(
-    //             text.t_upper_j,
-    //             Some(
-    //                 vec![
-    //                     "eget",
-    //                     " ",
-    //                     "dui.",
-    //                     " ",
-    //                     "Phasellus",
-    //                     " ",
-    //                     "congue.",
-    //                     " ",
-    //                     "Aenean",
-    //                     " ",
-    //                     "est",
-    //                     " ",
-    //                     "erat,",
-    //                     " ",
-    //                     "tincidunt",
-    //                     " ",
-    //                     "eget,",
-    //                     " ",
-    //                     "venenatis",
-    //                     " ",
-    //                     "quis,",
-    //                     " ",
-    //                     "commodo",
-    //                     " ",
-    //                     "at, "
-    //                 ]
-    //                 .iter()
-    //                 .map(|s| PdfString::Litteral(s.to_string()))
-    //                 .collect()
-    //             )
-    //         );
-    //     }
-
-    //     #[test]
-    //     fn test_content_stream() {
-    //         let raw = b"q Q q 0 0 612 792 re W n /Cs1 cs 1 sc 0 0 612 792 re f 0.6000000 i 0 0 612 792
-    // re f 0.3019608 sc 0 i q 1 0 0 -1 0 792 cm BT 36 0 0 -36 72 106 Tm /F1.0 1
-    // Tf (Sample PDF) Tj ET Q 0 sc q 1 0 0 -1 0 792 cm BT 18 0 0 -18 72 132 Tm /F2.0
-    // 1 Tf (This is a simple PDF file. Fun fun fun.) Tj ET Q q 1 0 0 -1 0 792 cm
-    // BT 12 0 0 -12 72 163 Tm /F3.0 1 Tf [ (Lor) 17 (em) -91 ( ) -35 (ipsum) -77
-    // ( ) -49 (dolor) 12 ( ) -139 (sit) -38 ( ) -89 (amet,) 61 ( ) -188 (consectetuer)
-    // -5 ( ) -122 (adipiscing) -35 ( ) -91 (elit.) -1 ( ) -125 (Phasellus) -23 ( )
-    // -103 (facilisis) -37 ( ) -89 (odio) -12 ( ) -114 (sed) -34 ( ) -93 (mi. )
-    // ] TJ ET Q q 1 0 0 -1 0 792 cm BT 12 0 0 -12 72 178 Tm /F3.0 1 Tf [ (Curabitur)
-    // -18 ( ) -41 (suscipit.) 21 ( ) -82 (Nullam) -94 ( ) 34 (vel) -6 ( ) -53 (nisi.)
-    // -3 ( ) -57 (Etiam) -73 ( ) 12 (semper) 5 ( ) -65 (ipsum) -47 ( ) -13 (ut)
-    // -43 ( ) -16 (lectus.) 25 ( ) -86 (Pr) 17 (oin) 68 ( ) -128 (aliquam,) 35 ( )
-    // -96 (erat) -61 ( eget ) ] TJ ET Q q 1 0 0 -1"
-    //             .as_slice();
-    //         let text = Content::from(raw);
-    //         assert_eq!(text.text.len(), 4);
-    //         assert_eq!(text.get_text(FontMap::default()), "Sample PDF\nThis is a simple PDF file. Fun fun fun.\nLorem ipsum dolor sit amet, consectetuer adipiscing elit. Phasellus facilisis odio sed mi. Curabitur suscipit. Nullam vel nisi. Etiam semper ipsum ut lectus. Proin aliquam, erat eget ");
-    //     }
 
     #[test]
     fn test_tokenizer_complex() {
@@ -870,29 +831,29 @@ mod tests {
         assert_eq!(
             text_stream.next(),
             Some(GraphicsInstruction::TJ(vec![
-                ArrayVal::Text("v0".to_string()),
+                ArrayVal::Text(b"v0".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text(":=".to_string()),
+                ArrayVal::Text(b":=".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("ld".to_string()),
+                ArrayVal::Text(b"ld".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("state[748]".to_string()),
+                ArrayVal::Text(b"state[748]".to_vec()),
                 ArrayVal::Pos(Number::Integer(-2625)),
-                ArrayVal::Text("//".to_string()),
+                ArrayVal::Text(b"//".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("load".to_string()),
+                ArrayVal::Text(b"load".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("primes".to_string()),
+                ArrayVal::Text(b"primes".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("from".to_string()),
+                ArrayVal::Text(b"from".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("the".to_string()),
+                ArrayVal::Text(b"the".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("trace".to_string()),
+                ArrayVal::Text(b"trace".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("activation".to_string()),
+                ArrayVal::Text(b"activation".to_vec()),
                 ArrayVal::Pos(Number::Integer(-525)),
-                ArrayVal::Text("record".to_string()),
+                ArrayVal::Text(b"record".to_vec()),
             ]))
         );
         assert_eq!(text_stream.next(), None);
