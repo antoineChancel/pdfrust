@@ -137,7 +137,7 @@ impl Content<'_> {
         self.graphic_state.flatness = flatness;
     }
 
-    fn process_gs(&mut self, dictName: Name) {}
+    fn process_gs(&mut self, dict_name: Name) {}
 
     fn process_m(&mut self, x: Number, y: Number) {}
 
@@ -681,14 +681,17 @@ impl<'a> TextContent<'a> {
                                             if char {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
-                                                    to_unicode_cmap.0.get(&usize::from(c)).unwrap(),
+                                                    to_unicode_cmap
+                                                        .cmap
+                                                        .get(&usize::from(c))
+                                                        .unwrap(),
                                                     font.subtype,
                                                     font.base_font,
                                                     self.content.text_object.tm
                                                 )
                                                 .as_str();
                                             } else {
-                                                match to_unicode_cmap.0.get(&usize::from(c)) {
+                                                match to_unicode_cmap.cmap.get(&usize::from(c)) {
                                                     Some(c) => output.push(*c),
                                                     None => output.push('#'), // mapping hex to unicode not found
                                                 };
