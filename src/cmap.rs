@@ -33,7 +33,7 @@ impl From<String> for ToUnicodeCMap {
         };
         let end_code_space_range = match tokenizer.next() {
             Some(Token::HexString(v)) => v,
-            t => panic!(
+            Some(t) => panic!(
                 "Cmap endcodespacerange next token should be HexString, found {:?}",
                 t
             ),
