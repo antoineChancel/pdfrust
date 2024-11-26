@@ -55,7 +55,6 @@ impl From<String> for ToUnicodeCMap {
                         if tokenizer.peek() == Some(&Token::String(b"endbfchar".to_vec())) {
                             break;
                         }
-
                         // key number in hex
                         let key = match tokenizer.next() {
                             Some(Token::HexString(x)) => {

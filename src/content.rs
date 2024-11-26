@@ -676,14 +676,19 @@ impl<'a> TextContent<'a> {
                                 // string characters in to unicode map
                                 match &font.to_unicode {
                                     Some(to_unicode_cmap) => {
-                                        for c in t {
+                                        let mut hex_iter = t.iter();
+                                        while let Some(c) = hex_iter.next() {
+                                            let char_idx = match to_unicode_cmap.is_two_bytes {
+                                                true => *c as usize * 256 + *hex_iter.next().unwrap() as usize,
+                                                false => usize::from(*c)
+                                            };
                                             // paint glyph
                                             if char {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
                                                     to_unicode_cmap
                                                         .cmap
-                                                        .get(&usize::from(c))
+                                                        .get(&char_idx)
                                                         .unwrap(),
                                                     font.subtype,
                                                     font.base_font,
@@ -691,14 +696,14 @@ impl<'a> TextContent<'a> {
                                                 )
                                                 .as_str();
                                             } else {
-                                                match to_unicode_cmap.cmap.get(&usize::from(c)) {
+                                                match to_unicode_cmap.cmap.get(&char_idx) {
                                                     Some(c) => output.push(*c),
                                                     None => output.push('#'), // mapping hex to unicode not found
                                                 };
                                             }
                                             // println!("{:?}", *to_unicode_cmap.0.get(&usize::from(c)).unwrap());
                                             // displacement vector
-                                            let w0: Number = match font.clone().get_width(c) {
+                                            let w0: Number = match font.clone().get_width(*c) {
                                                 Ok(n) => n,
                                                 Err(_) => Number::Real(0.0), // assumption at the moment...
                                             };
@@ -718,7 +723,7 @@ impl<'a> TextContent<'a> {
                                             // tj displacement factor is added according to the text writing mode (assumed 0 for now) -> page 408
                                             let mut tx = w0.clone() * tfs.clone() + tc.clone();
                                             // tw displacement for word space
-                                            if c == b' ' {
+                                            if *c == b' ' {
                                                 tx = tx + tw.clone();
                                             }
                                             tx = tx * th;
