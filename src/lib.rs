@@ -56,7 +56,7 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
-pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trailer<'a> {
+pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trailer {
     // locate trailer address
     let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
         Some(i) => i,
