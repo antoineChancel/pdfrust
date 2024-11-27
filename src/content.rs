@@ -65,8 +65,9 @@ enum GraphicsInstruction {
     // Color operators (page 287)
     cs(String),
     sc(Number),
-    G(Gray), // // Set the stroking color space to DeviceGray
+    G(Gray), // Set the stroking color space to DeviceGray
     g(Gray), // Same as G but used for nonstroking operations
+    RG(Number, Number, Number), // Set the stroking color space to DeviceRGB and set the color intensities
     rg(R, G, B),
     // Text positionning operators (page 406)
     Td(Number, Number), // move to the start of next line
@@ -74,7 +75,8 @@ enum GraphicsInstruction {
     Tm(Number, Number, Number, Number, Number, Number), // set text matrix Tm and text line matrix Tlm
     T_star,
     // Text state operators (page 398)
-    Tf(String, Number), // text font
+    Tc(Number), // set char space
+    Tf(String, Number), // set text font
     // Text-showing operators (page 407)
     Tj(Vec<u8>),       // show text string
     TJ(Vec<ArrayVal>), // show text array
@@ -147,6 +149,10 @@ impl Content<'_> {
 
     fn process_bt(&mut self) {
         self.text_object = TextObject::default();
+    }
+
+    fn process_tc(&mut self, tc: Number) {
+        self.graphic_state.text_state.tc = tc;
     }
 
     fn process_td(&mut self, tx: Number, ty: Number) {
@@ -387,6 +393,21 @@ impl Iterator for Content<'_> {
                         };
                         return Some(GraphicsInstruction::g(gray));
                     }
+                    b"RG" => {
+                        let r = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        let g = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        let b = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator rg"),
+                        };
+                        return Some(GraphicsInstruction::RG(r, g, b));
+                    }
                     b"rg" => {
                         let r = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
@@ -433,6 +454,14 @@ impl Iterator for Content<'_> {
                         };
                         self.process_td(tx.clone(), ty.clone());
                         return Some(GraphicsInstruction::Td(tx, ty));
+                    }
+                    b"Tc" => {
+                        let char_space = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator TD"),
+                        };
+                        self.process_tc(char_space.clone());
+                        return Some(GraphicsInstruction::Tc(char_space));
                     }
                     b"Tf" => {
                         let font = match &buf[0] {
@@ -823,19 +852,19 @@ impl<'a> TextContent<'a> {
                                     Matrix::new(1.0, 0.0, 0.0, 1.0, tx.clone().into(), 0.0)
                                         * self.content.text_object.tm;
                                 // whitespace detected
-                                // to be improved
-                                match tx {
-                                    Number::Integer(i) => {
-                                        if i > 0 && !output.ends_with(' ') {
-                                            output.push(' ');
-                                        }
-                                    }
-                                    Number::Real(f) => {
-                                        if f > 0.0 && !output.ends_with(' ') {
-                                            output.push(' ');
-                                        }
-                                    }
-                                }
+                                // to be improved...
+                                // match tx {
+                                //     Number::Integer(i) => {
+                                //         if i > 0 && !output.ends_with(' ') {
+                                //             output.push(' ');
+                                //         }
+                                //     }
+                                //     Number::Real(f) => {
+                                //         if f > 0.0 && !output.ends_with(' ') {
+                                //             output.push(' ');
+                                //         }
+                                //     }
+                                // }
                             }
                         }
                     }
