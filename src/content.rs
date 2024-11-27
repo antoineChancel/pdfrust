@@ -77,6 +77,7 @@ enum GraphicsInstruction {
     // Text state operators (page 398)
     Tc(Number),         // set char space
     Tf(String, Number), // set text font
+    Tr(Number),         // set text mode
     // Text-showing operators (page 407)
     Tj(Vec<u8>),       // show text string
     TJ(Vec<ArrayVal>), // show text array
@@ -164,6 +165,10 @@ impl Content<'_> {
     fn process_t_upper_d(&mut self, tx: Number, ty: Number) {
         self.graphic_state.text_state.tl = -ty.clone();
         self.process_td(tx, ty);
+    }
+
+    fn process_tr(&mut self, render: Number) {
+        self.graphic_state.text_state.tmode = render;
     }
 
     fn process_tf(&mut self, font: String, size: Number) {
@@ -475,6 +480,14 @@ impl Iterator for Content<'_> {
                         self.process_tf(font.clone(), size.clone());
                         return Some(GraphicsInstruction::Tf(font, size));
                     }
+                    b"Tr" => {
+                        let render = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tr"),
+                        };
+                        self.process_tr(render.clone());
+                        return Some(GraphicsInstruction::Tr(render))
+                    }
                     b"Tm" => {
                         let a = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
@@ -571,7 +584,7 @@ struct TextState {
     tl: Number,         // leading
     tf: Option<String>, // text font
     tfs: Option<Number>, // text font size
-                        // tmode: Number,       // text rendering mode
+    tmode: Number,       // text rendering mode
                         // trise: Number,       // text rise
                         // tk: bool,            // text knockout
 }
@@ -585,7 +598,7 @@ impl Default for TextState {
             tl: Number::Integer(0),
             tf: None,
             tfs: None,
-            // tmode: Number::Integer(0),
+            tmode: Number::Integer(0),
             // trise: Number::Integer(0),
             // tk: true,
         }
