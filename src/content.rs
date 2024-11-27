@@ -43,6 +43,7 @@ enum GraphicsInstruction {
     LowerQ,
     UpperQ,
     BDC, // Structure content operator (page 850) -> ignored at the moment
+    BMC,
     EMC,
     Cm(Number, Number, Number, Number, Number, Number), // Modify current transfo matrix
     LowerW(LineWidth),                                  // Set the line width in the graphics state
@@ -561,6 +562,7 @@ impl Iterator for Content<'_> {
                         }))
                     }
                     b"BDC" => return Some(GraphicsInstruction::BDC),
+                    b"BMC" => return Some(GraphicsInstruction::BMC),
                     b"EMC" => return Some(GraphicsInstruction::EMC),
                     s => println!(
                         "Content token operator {:?} is not known, operands {:?}",
