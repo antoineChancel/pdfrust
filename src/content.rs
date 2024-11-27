@@ -628,7 +628,7 @@ impl<'a> TextContent<'a> {
         }
     }
 
-    pub fn get_text(&mut self, char: bool) -> String {
+    pub fn get_text(&mut self, display_char: bool) -> String {
         let mut output = String::new();
         while let Some(i) = self.content.next() {
             match i {
@@ -641,7 +641,7 @@ impl<'a> TextContent<'a> {
                         None => panic!("Text state should have a font set"),
                     };
                     for c in text {
-                        if char {
+                        if display_char {
                             output += format!(
                                 "{:?}, {:?}, {:?}, {:}\n",
                                 c as char,
@@ -679,27 +679,28 @@ impl<'a> TextContent<'a> {
                                         let mut hex_iter = t.iter();
                                         while let Some(c) = hex_iter.next() {
                                             let char_idx = match to_unicode_cmap.is_two_bytes {
-                                                true => *c as usize * 256 + *hex_iter.next().unwrap() as usize,
-                                                false => usize::from(*c)
+                                                true => {
+                                                    *c as usize * 256
+                                                        + *hex_iter.next().unwrap() as usize
+                                                }
+                                                false => usize::from(*c),
+                                            };
+                                            let char = match to_unicode_cmap.cmap.get(&char_idx) {
+                                                Some(c) => c,
+                                                None => panic!("CMap does not contain a char with idx {:?}, charmap {:?}", char_idx, to_unicode_cmap.cmap)
                                             };
                                             // paint glyph
-                                            if char {
+                                            if display_char {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
-                                                    to_unicode_cmap
-                                                        .cmap
-                                                        .get(&char_idx)
-                                                        .unwrap(),
+                                                    char,
                                                     font.subtype,
                                                     font.base_font,
                                                     self.content.text_object.tm
                                                 )
                                                 .as_str();
                                             } else {
-                                                match to_unicode_cmap.cmap.get(&char_idx) {
-                                                    Some(c) => output.push(*c),
-                                                    None => output.push('#'), // mapping hex to unicode not found
-                                                };
+                                                output.push(*char);
                                             }
                                             // println!("{:?}", *to_unicode_cmap.0.get(&usize::from(c)).unwrap());
                                             // displacement vector
@@ -749,7 +750,7 @@ impl<'a> TextContent<'a> {
                                     // no unicode mapping -> read as char
                                     None => {
                                         for c in t {
-                                            if char {
+                                            if display_char {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
                                                     c as char,
