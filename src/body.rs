@@ -363,11 +363,11 @@ impl From<Dictionary<'_>> for Resources {
 pub struct PageTreeNode {
     parent: RefCell<Weak<PageTreeNode>>, // PageTreeNode parent
     kids: Vec<PageTreeKids>,             // PageTreeNode kids can be a Page or a PageTreeNode
-    count: Number,                       // Number of leaf nodes
+    // count: Number,                       // Number of leaf nodes
     // Inheritables (cf page 149)
-    rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
-    crop_box: Option<Rectangle>, // CropBox Rectangle
-    media_box: Option<Rectangle>, // MediaBox Rectangle
+    // rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
+    // crop_box: Option<Rectangle>, // CropBox Rectangle
+    // media_box: Option<Rectangle>, // MediaBox Rectangle
     resources: Option<Resources>, // Resource dictionary
 }
 
@@ -429,25 +429,25 @@ impl From<Dictionary<'_>> for PageTreeNode {
                     .collect(),
                 _ => panic!("Kids should be an array"),
             },
-            count: match value.get("Count").unwrap() {
-                Object::Numeric(n) => n.clone(),
-                _ => panic!("Count should be a numeric"),
-            },
-            rotate: match value.get("Rotate") {
-                Some(Object::Numeric(n)) => Some(n.clone()),
-                None => None,
-                _ => panic!("Rotate should be a numeric"),
-            },
-            crop_box: match value.get("CropBox") {
-                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-                None => None,
-                _ => panic!("CropBox should be an array"),
-            },
-            media_box: match value.get("MediaBox") {
-                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-                None => None,
-                _ => panic!("MediaBox should be an array"),
-            },
+            // count: match value.get("Count").unwrap() {
+            //     Object::Numeric(n) => n.clone(),
+            //     _ => panic!("Count should be a numeric"),
+            // },
+            // rotate: match value.get("Rotate") {
+            //     Some(Object::Numeric(n)) => Some(n.clone()),
+            //     None => None,
+            //     _ => panic!("Rotate should be a numeric"),
+            // },
+            // crop_box: match value.get("CropBox") {
+            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
+            //     None => None,
+            //     _ => panic!("CropBox should be an array"),
+            // },
+            // media_box: match value.get("MediaBox") {
+            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
+            //     None => None,
+            //     _ => panic!("MediaBox should be an array"),
+            // },
             resources: match value.get("Resources") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
@@ -465,11 +465,11 @@ impl From<Dictionary<'_>> for PageTreeNode {
 #[derive(Debug)]
 pub struct Page {
     parent: RefCell<Weak<PageTreeNode>>, // Page leaf parent
-    last_modified: Option<String>,       // Date and time of last modification
-    resources: Option<Resources>,        // Resource dictionary (inheritable from PageTreeNode)
-    media_box: Option<Rectangle>,        // MediaBox rectangle (inheritable from PageTreeNode)
-    crop_box: Option<Rectangle>,         // CropBox rectangle (inheritable from PageTreeNode)
-    contents: Option<Stream>,            // Page content
+    // last_modified: Option<String>,       // Date and time of last modification
+    resources: Option<Resources>, // Resource dictionary (inheritable from PageTreeNode)
+    // media_box: Option<Rectangle>,        // MediaBox rectangle (inheritable from PageTreeNode)
+    // crop_box: Option<Rectangle>,         // CropBox rectangle (inheritable from PageTreeNode)
+    contents: Option<Stream>, // Page content
 }
 
 impl Page {
@@ -530,11 +530,11 @@ impl From<Dictionary<'_>> for Page {
     fn from(value: Dictionary) -> Self {
         Page {
             parent: RefCell::new(Weak::new()),
-            last_modified: match value.get("LastModified") {
-                Some(Object::String(s)) => Some(s.clone()),
-                None => None,
-                _ => panic!("LastModified should be a string"),
-            },
+            // last_modified: match value.get("LastModified") {
+            //     Some(Object::String(s)) => Some(s.clone()),
+            //     None => None,
+            //     _ => panic!("LastModified should be a string"),
+            // },
             resources: match value.get("Resources").unwrap() {
                 Object::Dictionary(t) => Some(Resources::from(t.clone())),
                 Object::Ref((obj, gen), xref, bytes) => {
@@ -545,16 +545,16 @@ impl From<Dictionary<'_>> for Page {
                 }
                 t => panic!("Resources should be an dictionary object {t:?}"),
             },
-            media_box: match value.get("MediaBox") {
-                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-                Some(a) => panic!("MediaBox should be an array; found {a:?}"),
-                None => None,
-            },
-            crop_box: match value.get("CropBox") {
-                Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-                Some(a) => panic!("CropBox should be an array; found {a:?}"),
-                None => None,
-            },
+            // media_box: match value.get("MediaBox") {
+            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
+            //     Some(a) => panic!("MediaBox should be an array; found {a:?}"),
+            //     None => None,
+            // },
+            // crop_box: match value.get("CropBox") {
+            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
+            //     Some(a) => panic!("CropBox should be an array; found {a:?}"),
+            //     None => None,
+            // },
             contents: match value.get("Contents") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {

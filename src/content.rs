@@ -40,40 +40,40 @@ type B = Number;
 #[derive(Debug, PartialEq)]
 enum GraphicsInstruction {
     // Graphic state operators (page 219)
-    q,
-    Q,
+    LowerQ,
+    UpperQ,
     BDC, // Structure content operator (page 850) -> ignored at the moment
     EMC,
-    cm(Number, Number, Number, Number, Number, Number), // Modify current transfo matrix
-    w(LineWidth),                                       // Set the line width in the graphics state
-    J(LineStyle),            // Set the line cap style in the graphics state
-    d(DashArray, DashPhase), // Set the line dash pattern in the graphics state
-    i(Number),               // Set the flatness tolerance in the graphics state
-    gs,                      // Set the specified parameters in the graphics state
+    Cm(Number, Number, Number, Number, Number, Number), // Modify current transfo matrix
+    LowerW(LineWidth),                                  // Set the line width in the graphics state
+    UpperJ(LineStyle),            // Set the line cap style in the graphics state
+    LowerD(DashArray, DashPhase), // Set the line dash pattern in the graphics state
+    LowerI(Number),               // Set the flatness tolerance in the graphics state
+    Gs,                           // Set the specified parameters in the graphics state
     // Path construction operators (page 226)
-    m(X, Y), // Begin a new subpath by moving the current point to coordinates (x, y)
-    l(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y).
-    re(Number, Number, Number, Number), // Append a rectangle to the current path as a complete subpath, with lower-left corner (x, y) and dimensions width and height in user space.
+    LowerM(X, Y), // Begin a new subpath by moving the current point to coordinates (x, y)
+    L(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y).
+    Re(Number, Number, Number, Number), // Append a rectangle to the current path as a complete subpath, with lower-left corner (x, y) and dimensions width and height in user space.
     // Clipping paths operators (page 235)
     W,
-    W_star,
+    WStar,
     // Path painting operators (page 230)
     S,
-    f,
-    f_star, // Fill the path, using the even-odd rule to determine the region to fill
-    n,
+    LowerF,
+    LowerFStar, // Fill the path, using the even-odd rule to determine the region to fill
+    N,
     // Color operators (page 287)
-    cs(String),
-    sc(Number),
-    G(Gray),                    // Set the stroking color space to DeviceGray
-    g(Gray),                    // Same as G but used for nonstroking operations
+    Cs(String),
+    Sc(Number),
+    UpperG(Gray),               // Set the stroking color space to DeviceGray
+    LowerG(Gray),               // Same as G but used for nonstroking operations
     RG(Number, Number, Number), // Set the stroking color space to DeviceRGB and set the color intensities
-    rg(R, G, B),
+    Rg(R, G, B),
     // Text positionning operators (page 406)
     Td(Number, Number), // move to the start of next line
     TD(Number, Number), // move to the start of next line
     Tm(Number, Number, Number, Number, Number, Number), // set text matrix Tm and text line matrix Tlm
-    T_star,
+    TStar,
     // Text state operators (page 398)
     Tc(Number),         // set char space
     Tf(String, Number), // set text font
@@ -133,19 +133,19 @@ impl Content<'_> {
         self.graphic_state.line_cap = line_cap;
     }
 
-    fn process_d(&mut self, dash_array: DashArray) {}
+    fn process_d(&mut self, _dash_array: DashArray) {}
 
     fn process_i(&mut self, flatness: Number) {
         self.graphic_state.flatness = flatness;
     }
 
-    fn process_gs(&mut self, dict_name: Name) {}
+    fn process_gs(&mut self, _dict_name: Name) {}
 
-    fn process_m(&mut self, x: Number, y: Number) {}
+    fn process_m(&mut self, _x: Number, _y: Number) {}
 
-    fn process_l(&mut self, x: Number, y: Number) {}
+    fn process_l(&mut self, _x: Number, _y: Number) {}
 
-    fn process_re(&mut self, x: Number, y: Number, width: Number, height: Number) {}
+    fn process_re(&mut self, _x: Number, _y: Number, _width: Number, _height: Number) {}
 
     fn process_bt(&mut self) {
         self.text_object = TextObject::default();
@@ -219,11 +219,11 @@ impl Iterator for Content<'_> {
                 Token::String(l) => match l.as_slice() {
                     b"q" => {
                         self.process_q();
-                        return Some(GraphicsInstruction::q);
+                        return Some(GraphicsInstruction::LowerQ);
                     }
                     b"Q" => {
                         self.process_upper_q();
-                        return Some(GraphicsInstruction::Q);
+                        return Some(GraphicsInstruction::UpperQ);
                     }
                     b"cm" => {
                         let a = match &buf[0] {
@@ -258,7 +258,7 @@ impl Iterator for Content<'_> {
                             e.clone(),
                             f.clone(),
                         ]);
-                        return Some(GraphicsInstruction::cm(a, b, c, d, e, f));
+                        return Some(GraphicsInstruction::Cm(a, b, c, d, e, f));
                     }
                     b"w" => {
                         let line_width = match &buf[0] {
@@ -266,7 +266,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator J"),
                         };
                         self.process_w(line_width.clone());
-                        return Some(GraphicsInstruction::w(line_width));
+                        return Some(GraphicsInstruction::LowerW(line_width));
                     }
                     b"J" => {
                         let line_cap = match &buf[0] {
@@ -274,7 +274,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator J"),
                         };
                         self.process_upper_j(line_cap.clone());
-                        return Some(GraphicsInstruction::J(line_cap));
+                        return Some(GraphicsInstruction::UpperJ(line_cap));
                     }
                     b"d" => {
                         let mut e = buf.iter();
@@ -284,7 +284,7 @@ impl Iterator for Content<'_> {
                             None => panic!("End of stream too early"),
                         };
                         let mut dash_array = DashArray::new();
-                        while let Some(t) = e.next() {
+                        for t in e.by_ref() {
                             match t {
                                 Token::Numeric(n) => dash_array.push(n.clone()),
                                 Token::ArrayEnd => break,
@@ -297,7 +297,7 @@ impl Iterator for Content<'_> {
                             None => panic!("End of stream too early"),
                         };
                         self.process_d(dash_array.clone());
-                        return Some(GraphicsInstruction::d(dash_array, dash_phase));
+                        return Some(GraphicsInstruction::LowerD(dash_array, dash_phase));
                     }
                     b"i" => {
                         let flatness = match &buf[0] {
@@ -305,7 +305,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_i(flatness.clone());
-                        return Some(GraphicsInstruction::i(flatness));
+                        return Some(GraphicsInstruction::LowerI(flatness));
                     }
                     b"gs" => {
                         let dict_name = match &buf[0] {
@@ -313,7 +313,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator gs"),
                         };
                         self.process_gs(dict_name);
-                        return Some(GraphicsInstruction::gs);
+                        return Some(GraphicsInstruction::Gs);
                     }
                     b"m" => {
                         let x = match &buf[0] {
@@ -325,7 +325,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_m(x.clone(), y.clone());
-                        return Some(GraphicsInstruction::m(x, y));
+                        return Some(GraphicsInstruction::LowerM(x, y));
                     }
                     b"l" => {
                         let x = match &buf[0] {
@@ -337,7 +337,7 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_l(x.clone(), y.clone());
-                        return Some(GraphicsInstruction::l(x, y));
+                        return Some(GraphicsInstruction::L(x, y));
                     }
                     b"re" => {
                         let x = match &buf[0] {
@@ -357,41 +357,41 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_re(x.clone(), y.clone(), width.clone(), height.clone());
-                        return Some(GraphicsInstruction::re(x, y, width, height));
+                        return Some(GraphicsInstruction::Re(x, y, width, height));
                     }
                     b"W" => return Some(GraphicsInstruction::W),
-                    b"W*" => return Some(GraphicsInstruction::W_star),
+                    b"W*" => return Some(GraphicsInstruction::WStar),
                     b"S" => return Some(GraphicsInstruction::S),
-                    b"f" => return Some(GraphicsInstruction::f),
-                    b"f*" => return Some(GraphicsInstruction::f_star),
-                    b"n" => return Some(GraphicsInstruction::n),
+                    b"f" => return Some(GraphicsInstruction::LowerF),
+                    b"f*" => return Some(GraphicsInstruction::LowerFStar),
+                    b"n" => return Some(GraphicsInstruction::N),
                     b"cs" => {
                         let color_space = match &buf[0] {
                             Token::Name(s) => s.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator cs"),
                         };
-                        return Some(GraphicsInstruction::cs(color_space));
+                        return Some(GraphicsInstruction::Cs(color_space));
                     }
                     b"sc" => {
                         let colors = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator cs"),
                         };
-                        return Some(GraphicsInstruction::sc(colors));
+                        return Some(GraphicsInstruction::Sc(colors));
                     }
                     b"G" => {
                         let gray = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator G"),
                         };
-                        return Some(GraphicsInstruction::G(gray));
+                        return Some(GraphicsInstruction::UpperG(gray));
                     }
                     b"g" => {
                         let gray = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator G"),
                         };
-                        return Some(GraphicsInstruction::g(gray));
+                        return Some(GraphicsInstruction::LowerG(gray));
                     }
                     b"RG" => {
                         let r = match &buf[0] {
@@ -421,7 +421,7 @@ impl Iterator for Content<'_> {
                             Token::Numeric(n) => n.clone(),
                             t => panic!("Operand {t:?} is not allowed with operator rg"),
                         };
-                        return Some(GraphicsInstruction::rg(r, g, b));
+                        return Some(GraphicsInstruction::Rg(r, g, b));
                     }
                     b"BT" => {
                         self.process_bt();
@@ -512,7 +512,7 @@ impl Iterator for Content<'_> {
                     }
                     b"T*" => {
                         self.process_t_star();
-                        return Some(GraphicsInstruction::T_star);
+                        return Some(GraphicsInstruction::TStar);
                     }
                     b"Tj" => {
                         let text = match &buf[0] {
@@ -565,15 +565,15 @@ impl Iterator for Content<'_> {
 // Text state operators (page 397)
 #[derive(Clone)]
 struct TextState {
-    tc: Number,          // char spacing
-    tw: Number,          // word spacing
-    th: Number,          // horizontal scaling
-    tl: Number,          // leading
-    tf: Option<String>,  // text font
+    tc: Number,         // char spacing
+    tw: Number,         // word spacing
+    th: Number,         // horizontal scaling
+    tl: Number,         // leading
+    tf: Option<String>, // text font
     tfs: Option<Number>, // text font size
-    tmode: Number,       // text rendering mode
-    trise: Number,       // text rise
-    tk: bool,            // text knockout
+                        // tmode: Number,       // text rendering mode
+                        // trise: Number,       // text rise
+                        // tk: bool,            // text knockout
 }
 
 impl Default for TextState {
@@ -585,9 +585,9 @@ impl Default for TextState {
             tl: Number::Integer(0),
             tf: None,
             tfs: None,
-            tmode: Number::Integer(0),
-            trise: Number::Integer(0),
-            tk: true,
+            // tmode: Number::Integer(0),
+            // trise: Number::Integer(0),
+            // tk: true,
         }
     }
 }
@@ -597,23 +597,23 @@ struct GraphicsState {
     // device-independant state
     ctm: Matrix, // current transformation matrix
     // TODO: clipping_path,
-    color_space: String, // current color space
+    // color_space: String, // current color space
     // TODO: color,
     text_state: TextState,
     line_width: Number,
     line_cap: Number,
-    line_join: Number,
-    miter_limit: Number,
+    // line_join: Number,
+    // miter_limit: Number,
     // TODO: dash_pattern,
-    rendering_intent: String,
-    stroke_adjustment: bool,
-    blend_mode: String,
+    // rendering_intent: String,
+    // stroke_adjustment: bool,
+    // blend_mode: String,
     // TODO: softmask,
-    alpha_constant: Number,
-    alpha_source: bool,
+    // alpha_constant: Number,
+    // alpha_source: bool,
     // device dependant state
-    overprint: bool,
-    overprint_mode: Number,
+    // overprint: bool,
+    // overprint_mode: Number,
     // TODO: black_generation,
     // TODO: undercolor_removal
     // TODO: transfer
@@ -626,19 +626,19 @@ impl Default for GraphicsState {
     fn default() -> Self {
         Self {
             ctm: Matrix::default(), // identity matrix
-            color_space: String::from("DeviceGray"),
+            // color_space: String::from("DeviceGray"),
             text_state: TextState::default(),
             line_width: Number::Real(1.0),
             line_cap: Number::Integer(0), // square butt caps
-            line_join: Number::Integer(0),
-            miter_limit: Number::Real(10.0),
-            rendering_intent: String::from("RelativeColorimetric"),
-            stroke_adjustment: false,
-            blend_mode: String::from("Normal"),
-            alpha_constant: Number::Real(1.0),
-            alpha_source: false,
-            overprint: false,
-            overprint_mode: Number::Integer(0),
+            // line_join: Number::Integer(0),
+            // miter_limit: Number::Real(10.0),
+            // rendering_intent: String::from("RelativeColorimetric"),
+            // stroke_adjustment: false,
+            // blend_mode: String::from("Normal"),
+            // alpha_constant: Number::Real(1.0),
+            // alpha_source: false,
+            // overprint: false,
+            // overprint_mode: Number::Integer(0),
             flatness: Number::Real(1.0),
         }
     }
@@ -696,7 +696,7 @@ impl<'a> TextContent<'a> {
                     };
 
                     // estimate current space width (before scaling)
-                    let w_space = font.estimate_space_width();
+                    // let w_space = font.estimate_space_width();
                     // println!("{text:?}");
                     // println!("Space width: {w_space:?}");
                     for c in text {
@@ -948,10 +948,10 @@ mod tests {
         let raw = b" /P <</MCID 0>> BDC q\n0.00000887 0 595.25 842 re".as_slice();
         let mut text_stream = Content::from(raw);
         assert_eq!(text_stream.next(), Some(GraphicsInstruction::BDC));
-        assert_eq!(text_stream.next(), Some(GraphicsInstruction::q));
+        assert_eq!(text_stream.next(), Some(GraphicsInstruction::LowerQ));
         assert_eq!(
             text_stream.next(),
-            Some(GraphicsInstruction::re(
+            Some(GraphicsInstruction::Re(
                 Number::Real(0.00000887),
                 Number::Integer(0),
                 Number::Real(595.25),
