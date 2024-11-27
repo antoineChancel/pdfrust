@@ -65,8 +65,8 @@ enum GraphicsInstruction {
     // Color operators (page 287)
     cs(String),
     sc(Number),
-    G(Gray), // Set the stroking color space to DeviceGray
-    g(Gray), // Same as G but used for nonstroking operations
+    G(Gray),                    // Set the stroking color space to DeviceGray
+    g(Gray),                    // Same as G but used for nonstroking operations
     RG(Number, Number, Number), // Set the stroking color space to DeviceRGB and set the color intensities
     rg(R, G, B),
     // Text positionning operators (page 406)
@@ -75,7 +75,7 @@ enum GraphicsInstruction {
     Tm(Number, Number, Number, Number, Number, Number), // set text matrix Tm and text line matrix Tlm
     T_star,
     // Text state operators (page 398)
-    Tc(Number), // set char space
+    Tc(Number),         // set char space
     Tf(String, Number), // set text font
     // Text-showing operators (page 407)
     Tj(Vec<u8>),       // show text string
