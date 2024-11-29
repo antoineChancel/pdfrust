@@ -742,7 +742,7 @@ impl<'a> TextContent<'a> {
                         },
                         None => panic!("Text state should have a font set"),
                     };
-                    
+
                     // detect a line feed if tm y coordinate has changed
                     if self.content.text_object.tm.get_ty() != tm_prev.get_ty() {
                         output += "\n";
@@ -817,7 +817,7 @@ impl<'a> TextContent<'a> {
                                             // displacement vector
                                             let w0: Number = match font.clone().get_width(*c) {
                                                 Ok(n) => n,
-                                                Err(_) => Number::Real(0.0) // assumption at the moment, probably need to leverage Font Encoding
+                                                Err(_) => Number::Real(0.0), // assumption at the moment, probably need to leverage Font Encoding
                                             };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
@@ -947,7 +947,7 @@ impl<'a> TextContent<'a> {
                 _ => (),
             }
         }
-        output.trim_start_matches(['\n', ' '] ).to_string()
+        output.trim_start_matches(['\n', ' ']).to_string()
     }
 }
 
