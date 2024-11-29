@@ -229,7 +229,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                                         match self.byte.next() {
                                             Some(b'>') => break,
                                             Some(a) => buf.push(*a as char),
-                                            None => return None
+                                            None => return None,
                                         }
                                     }
                                     // HexString should contain a pair number of characters to be valid

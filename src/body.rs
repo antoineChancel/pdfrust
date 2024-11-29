@@ -154,7 +154,7 @@ pub struct Font {
     last_char: Option<Number>,  // Number -> Integer
     widths: Option<Vec<Number>>,
     pub to_unicode: Option<ToUnicodeCMap>,
-    encoding: Option<Name>
+    encoding: Option<Name>,
 }
 
 impl Font {
@@ -289,8 +289,8 @@ impl From<Dictionary<'_>> for Font {
             encoding: match value.get("Encoding") {
                 Some(Object::Name(name)) => Some(name.clone()),
                 Some(_) => None, // dictionnary encoding not supported at the moment
-                None => None
-            }
+                None => None,
+            },
         }
     }
 }
