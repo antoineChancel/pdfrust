@@ -4,7 +4,7 @@ fn test_helloworld() {
     pdfrust::xref::xref_table(&file);
     let xref = pdfrust::xref::xref_table(&file);
     let trailer = pdfrust::trailer(&file, &xref);
-    assert_eq!(trailer.extract(pdfrust::Extract::Text), "Hello, world!\n");
+    assert_eq!(trailer.extract(pdfrust::Extract::Text), "Hello, world!");
     assert_eq!(
         trailer.extract(pdfrust::Extract::RawContent),
         "BT\n70 50 TD\n/F1 12 Tf\n(Hello, world!) Tj\nET\n"

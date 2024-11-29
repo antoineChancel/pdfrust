@@ -32,6 +32,12 @@ type LineWidth = Number;
 type LineStyle = Number;
 type X = Number;
 type Y = Number;
+type X1 = Number;
+type Y1 = Number;
+type X2 = Number;
+type Y2 = Number;
+type X3 = Number;
+type Y3 = Number;
 type Gray = Number; // gray is a number between 0.0 (black) and 1.0 (white)
 type R = Number;
 type G = Number;
@@ -43,6 +49,7 @@ enum GraphicsInstruction {
     LowerQ,
     UpperQ,
     BDC, // Structure content operator (page 850) -> ignored at the moment
+    BMC,
     EMC,
     Cm(Number, Number, Number, Number, Number, Number), // Modify current transfo matrix
     LowerW(LineWidth),                                  // Set the line width in the graphics state
@@ -52,7 +59,9 @@ enum GraphicsInstruction {
     Gs,                           // Set the specified parameters in the graphics state
     // Path construction operators (page 226)
     LowerM(X, Y), // Begin a new subpath by moving the current point to coordinates (x, y)
-    L(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y).
+    LowerL(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y)
+    LowerC(X1, Y1, X2, Y2, X3, Y3), // Append a cubic Bézier curve to the current path
+    LowerH, // Close the current subpath by appending a straight line segment from the current point to the starting point of the subpath
     Re(Number, Number, Number, Number), // Append a rectangle to the current path as a complete subpath, with lower-left corner (x, y) and dimensions width and height in user space.
     // Clipping paths operators (page 235)
     W,
@@ -77,6 +86,7 @@ enum GraphicsInstruction {
     // Text state operators (page 398)
     Tc(Number),         // set char space
     Tf(String, Number), // set text font
+    Tr(Number),         // set text mode
     // Text-showing operators (page 407)
     Tj(Vec<u8>),       // show text string
     TJ(Vec<ArrayVal>), // show text array
@@ -145,6 +155,17 @@ impl Content<'_> {
 
     fn process_l(&mut self, _x: Number, _y: Number) {}
 
+    fn process_c(
+        &mut self,
+        _x1: Number,
+        _y1: Number,
+        _x2: Number,
+        _y2: Number,
+        _x3: Number,
+        _y3: Number,
+    ) {
+    }
+
     fn process_re(&mut self, _x: Number, _y: Number, _width: Number, _height: Number) {}
 
     fn process_bt(&mut self) {
@@ -164,6 +185,10 @@ impl Content<'_> {
     fn process_t_upper_d(&mut self, tx: Number, ty: Number) {
         self.graphic_state.text_state.tl = -ty.clone();
         self.process_td(tx, ty);
+    }
+
+    fn process_tr(&mut self, render: Number) {
+        self.graphic_state.text_state.tmode = render;
     }
 
     fn process_tf(&mut self, font: String, size: Number) {
@@ -337,7 +362,45 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_l(x.clone(), y.clone());
-                        return Some(GraphicsInstruction::L(x, y));
+                        return Some(GraphicsInstruction::LowerL(x, y));
+                    }
+                    b"c" => {
+                        let x1 = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y1 = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let x2 = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y2 = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let x3 = match &buf[4] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y3 = match &buf[5] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        self.process_c(
+                            x1.clone(),
+                            y1.clone(),
+                            x2.clone(),
+                            y2.clone(),
+                            x3.clone(),
+                            y3.clone(),
+                        );
+                        return Some(GraphicsInstruction::LowerC(x1, y1, x2, y2, x3, y3));
+                    }
+                    b"h" => {
+                        return Some(GraphicsInstruction::LowerH);
                     }
                     b"re" => {
                         let x = match &buf[0] {
@@ -475,6 +538,14 @@ impl Iterator for Content<'_> {
                         self.process_tf(font.clone(), size.clone());
                         return Some(GraphicsInstruction::Tf(font, size));
                     }
+                    b"Tr" => {
+                        let render = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tr"),
+                        };
+                        self.process_tr(render.clone());
+                        return Some(GraphicsInstruction::Tr(render));
+                    }
                     b"Tm" => {
                         let a = match &buf[0] {
                             Token::Numeric(n) => n.clone(),
@@ -548,6 +619,7 @@ impl Iterator for Content<'_> {
                         }))
                     }
                     b"BDC" => return Some(GraphicsInstruction::BDC),
+                    b"BMC" => return Some(GraphicsInstruction::BMC),
                     b"EMC" => return Some(GraphicsInstruction::EMC),
                     s => println!(
                         "Content token operator {:?} is not known, operands {:?}",
@@ -565,15 +637,15 @@ impl Iterator for Content<'_> {
 // Text state operators (page 397)
 #[derive(Clone)]
 struct TextState {
-    tc: Number,         // char spacing
-    tw: Number,         // word spacing
-    th: Number,         // horizontal scaling
-    tl: Number,         // leading
-    tf: Option<String>, // text font
+    tc: Number,          // char spacing
+    tw: Number,          // word spacing
+    th: Number,          // horizontal scaling
+    tl: Number,          // leading
+    tf: Option<String>,  // text font
     tfs: Option<Number>, // text font size
-                        // tmode: Number,       // text rendering mode
-                        // trise: Number,       // text rise
-                        // tk: bool,            // text knockout
+    tmode: Number,       // text rendering mode
+                         // trise: Number,       // text rise
+                         // tk: bool,            // text knockout
 }
 
 impl Default for TextState {
@@ -585,7 +657,7 @@ impl Default for TextState {
             tl: Number::Integer(0),
             tf: None,
             tfs: None,
-            // tmode: Number::Integer(0),
+            tmode: Number::Integer(0),
             // trise: Number::Integer(0),
             // tk: true,
         }
@@ -659,6 +731,7 @@ impl<'a> TextContent<'a> {
 
     pub fn get_text(&mut self, display_char: bool) -> String {
         let mut output = String::new();
+        let mut tm_prev = self.content.text_object.tm;
         while let Some(i) = self.content.next() {
             match i {
                 GraphicsInstruction::Tj(text) => {
@@ -669,6 +742,13 @@ impl<'a> TextContent<'a> {
                         },
                         None => panic!("Text state should have a font set"),
                     };
+
+                    // detect a line feed if tm y coordinate has changed
+                    if self.content.text_object.tm.get_ty() != tm_prev.get_ty() {
+                        output += "\n";
+                    }
+                    tm_prev = self.content.text_object.tm;
+
                     for c in text {
                         if display_char {
                             output += format!(
@@ -683,7 +763,6 @@ impl<'a> TextContent<'a> {
                             output.push(c as char);
                         }
                     }
-                    output.push('\n');
                 }
                 GraphicsInstruction::TJ(text) => {
                     // current font
@@ -695,10 +774,14 @@ impl<'a> TextContent<'a> {
                         None => panic!("Text state should have a font set"),
                     };
 
+                    // detect a line feed if tm y coordinate has changed
+                    if self.content.text_object.tm.get_ty() != tm_prev.get_ty() {
+                        output += "\n";
+                    }
+                    tm_prev = self.content.text_object.tm;
+
                     // estimate current space width (before scaling)
                     // let w_space = font.estimate_space_width();
-                    // println!("{text:?}");
-                    // println!("Space width: {w_space:?}");
                     for c in text {
                         match c {
                             ArrayVal::Text(t) => {
@@ -731,11 +814,10 @@ impl<'a> TextContent<'a> {
                                             } else {
                                                 output.push(*char);
                                             }
-                                            // println!("{:?}", *to_unicode_cmap.0.get(&usize::from(c)).unwrap());
                                             // displacement vector
                                             let w0: Number = match font.clone().get_width(*c) {
                                                 Ok(n) => n,
-                                                Err(_) => Number::Real(0.0), // assumption at the moment...
+                                                Err(_) => Number::Real(0.0), // assumption at the moment, probably need to leverage Font Encoding
                                             };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
@@ -762,8 +844,6 @@ impl<'a> TextContent<'a> {
                                             //     * tfs.clone()
                                             //     + tc.clone()
                                             //     + tw.clone();
-                                            // println!("ctm: {:?}", self.content.graphic_state.ctm);
-                                            // println!("tx:{tx:?}, ty:{ty:?}, w0: {w0:?}, w1:{w1:?}, tfs:{tfs:?}, tc:{tc:?}, tw:{tw:?}");
                                             self.content.text_object.tm =
                                                 Matrix::new(
                                                     1.0,
@@ -773,7 +853,6 @@ impl<'a> TextContent<'a> {
                                                     tx.into(),
                                                     ty.into(),
                                                 ) * self.content.text_object.tm;
-                                            // println!("tm {:?}", self.content.text_object.tm);
                                         }
                                     }
                                     // no unicode mapping -> read as char
@@ -791,10 +870,11 @@ impl<'a> TextContent<'a> {
                                             } else {
                                                 output.push(c as char);
                                             }
-                                            // println!("{:?}", c as char);
                                             // displacement vector
-                                            let w0: Number =
-                                                font.clone().get_width(c).expect("Width not found");
+                                            let w0: Number = match font.clone().get_width(c) {
+                                                Ok(w) => w,
+                                                Err(_) => Number::Real(0.0),
+                                            };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
                                                 Some(n) => n,
@@ -819,8 +899,6 @@ impl<'a> TextContent<'a> {
                                             //     * tfs.clone()
                                             //     + tc.clone()
                                             //     + tw.clone();
-                                            // println!("ctm: {:?}", self.content.graphic_state.ctm);
-                                            // println!("tx:{tx:?}, ty:{ty:?}, w0: {w0:?}, w1:{w1:?}, tfs:{tfs:?}, tc:{tc:?}, tw:{tw:?}");
                                             self.content.text_object.tm =
                                                 Matrix::new(
                                                     1.0,
@@ -830,7 +908,6 @@ impl<'a> TextContent<'a> {
                                                     tx.into(),
                                                     ty.into(),
                                                 ) * self.content.text_object.tm;
-                                            // println!("tm {:?}", self.content.text_object.tm);
                                         }
                                     }
                                 };
@@ -845,9 +922,7 @@ impl<'a> TextContent<'a> {
                                 };
                                 let th = self.content.graphic_state.text_state.th.clone();
                                 let tx = -tj / Number::Real(1000.0) * tfs.clone() * th.clone();
-                                // apply
-                                // println!("Space width threshold {:?}", w_space.clone() * tfs.clone() * th);
-                                // println!("Translate {:?}", tx);
+                                // apply transformation
                                 self.content.text_object.tm =
                                     Matrix::new(1.0, 0.0, 0.0, 1.0, tx.clone().into(), 0.0)
                                         * self.content.text_object.tm;
@@ -868,12 +943,11 @@ impl<'a> TextContent<'a> {
                             }
                         }
                     }
-                    output.push('\n');
                 }
                 _ => (),
             }
         }
-        output
+        output.trim_start_matches(['\n', ' ']).to_string()
     }
 }
 
