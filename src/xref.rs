@@ -1,4 +1,4 @@
-use crate::tokenizer::{Lemmatizer, Token, Number};
+use crate::{algebra::Number, tokenizer::{Lemmatizer, Token}};
 
 use super::object;
 use std::collections::HashMap;
