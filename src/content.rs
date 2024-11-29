@@ -32,6 +32,12 @@ type LineWidth = Number;
 type LineStyle = Number;
 type X = Number;
 type Y = Number;
+type X1 = Number;
+type Y1 = Number;
+type X2 = Number;
+type Y2 = Number;
+type X3 = Number;
+type Y3 = Number;
 type Gray = Number; // gray is a number between 0.0 (black) and 1.0 (white)
 type R = Number;
 type G = Number;
@@ -53,7 +59,9 @@ enum GraphicsInstruction {
     Gs,                           // Set the specified parameters in the graphics state
     // Path construction operators (page 226)
     LowerM(X, Y), // Begin a new subpath by moving the current point to coordinates (x, y)
-    L(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y).
+    LowerL(X, Y), // Append a straight line segment from the current point to the point (x, y). The new current point is (x, y)
+    LowerC(X1, Y1, X2, Y2, X3, Y3), // Append a cubic Bézier curve to the current path
+    LowerH, // Close the current subpath by appending a straight line segment from the current point to the starting point of the subpath
     Re(Number, Number, Number, Number), // Append a rectangle to the current path as a complete subpath, with lower-left corner (x, y) and dimensions width and height in user space.
     // Clipping paths operators (page 235)
     W,
@@ -146,6 +154,8 @@ impl Content<'_> {
     fn process_m(&mut self, _x: Number, _y: Number) {}
 
     fn process_l(&mut self, _x: Number, _y: Number) {}
+
+    fn process_c(&mut self, _x1: Number, _y1: Number, _x2: Number, _y2: Number, _x3: Number, _y3: Number) {}
 
     fn process_re(&mut self, _x: Number, _y: Number, _width: Number, _height: Number) {}
 
@@ -343,7 +353,45 @@ impl Iterator for Content<'_> {
                             t => panic!("Operand {t:?} is not allowed with operator re"),
                         };
                         self.process_l(x.clone(), y.clone());
-                        return Some(GraphicsInstruction::L(x, y));
+                        return Some(GraphicsInstruction::LowerL(x, y));
+                    }
+                    b"c" => {
+                        let x1 = match &buf[0] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y1 = match &buf[1] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let x2 = match &buf[2] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y2 = match &buf[3] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let x3 = match &buf[4] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        let y3 = match &buf[5] {
+                            Token::Numeric(n) => n.clone(),
+                            t => panic!("Operand {t:?} is not allowed with operator Tm"),
+                        };
+                        self.process_c(
+                            x1.clone(),
+                            y1.clone(),
+                            x2.clone(),
+                            y2.clone(),
+                            x3.clone(),
+                            y3.clone(),
+                        );
+                        return Some(GraphicsInstruction::LowerC(x1, y1, x2, y2, x3, y3));
+                    }
+                    b"h" => {
+                        return Some(GraphicsInstruction::LowerH);
                     }
                     b"re" => {
                         let x = match &buf[0] {
@@ -808,8 +856,10 @@ impl<'a> TextContent<'a> {
                                             }
                                             // println!("{:?}", c as char);
                                             // displacement vector
-                                            let w0: Number =
-                                                font.clone().get_width(c).expect("Width not found");
+                                            let w0: Number = match font.clone().get_width(c) {
+                                                Ok(w) => w,
+                                                Err(_) => Number::Real(0.0)
+                                            };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
                                                 Some(n) => n,
