@@ -947,7 +947,7 @@ impl<'a> TextContent<'a> {
                 _ => (),
             }
         }
-        output
+        output.trim_start_matches(['\n', ' '] ).to_string()
     }
 }
 

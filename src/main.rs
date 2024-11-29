@@ -35,8 +35,8 @@ fn main() {
     let file = std::fs::read(config.path).unwrap();
 
     // Pdf header with specifications version
-    let version = pdfrust::pdf_version(&file[..8]);
-    println!("Pdf version: {version}");
+    // let version = pdfrust::pdf_version(&file[..8]);
+    // println!("Pdf version: {version}");
 
     // Check that pdf file ends with %%EOF
     let file = file.trim_ascii();
