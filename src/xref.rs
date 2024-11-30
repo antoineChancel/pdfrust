@@ -1,6 +1,7 @@
-use crate::{algebra::Number, tokenizer::{Lemmatizer, Token}};
+use crate::{algebra::Number, tokenizer::{Token, Tokenizer}};
 
 use super::object;
+use core::panic;
 use std::collections::HashMap;
 
 type Offset = usize;
@@ -64,47 +65,46 @@ pub struct XrefEntry {
     in_use: bool,
 }
 
-fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
-    // Try reading first object idx and number of object of the xref subsection
-    let mut token = line.split_whitespace();
-    let xref_sub_first_obj = match token.next() {
-        Some(w) => match w.parse::<usize>() {
-            Ok(i) => i,
-            Err(_) => return None,
-        },
-        None => return None,
-    };
-    let xref_sub_nb_obj = match token.next() {
-        Some(w) => match w.parse::<usize>() {
-            Ok(i) => i,
-            Err(_) => return None,
-        },
-        None => return None,
-    };
-    Some((xref_sub_first_obj, xref_sub_nb_obj))
-}
+// fn xref_table_subsection_header(line: &str) -> Option<(usize, usize)> {
+//     // Try reading first object idx and number of object of the xref subsection
+//     let mut token = line.split_whitespace();
+//     let xref_sub_first_obj = match token.next() {
+//         Some(w) => match w.parse::<usize>() {
+//             Ok(i) => i,
+//             Err(_) => return None,
+//         },
+//         None => return None,
+//     };
+//     let xref_sub_nb_obj = match token.next() {
+//         Some(w) => match w.parse::<usize>() {
+//             Ok(i) => i,
+//             Err(_) => return None,
+//         },
+//         None => return None,
+//     };
+//     Some((xref_sub_first_obj, xref_sub_nb_obj))
+// }
 
-fn xref_table_subsection_entry(line: &str) -> Option<XrefEntry> {
-    // Try reading an xref entry
-    let mut token = line.split_whitespace();
-    let offset = match token.next() {
-        Some(w) => match w.parse::<usize>() {
-            Ok(i) => i,
-            Err(_) => return None,
-        },
-        None => return None,
+fn xref_table_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
+
+    let offset = match tokenizer.next() {
+        Some(Token::Numeric(Number::Integer(n))) => n as usize,
+        Some(t) => panic!("Xref entry offset token should be an integer, found {t:?}"),
+        None => panic!("Xref entry incomplete"),
     };
-    let generation = match token.next() {
-        Some(w) => match w.parse::<usize>() {
-            Ok(i) => i,
-            Err(_) => return None,
-        },
-        None => return None,
+
+    let generation = match tokenizer.next() {
+        Some(Token::Numeric(Number::Integer(n))) => n as usize,
+        Some(t) => panic!("Xref entry generation token should be an integer, found {t:?}"),
+        None => panic!("Xref entry incomplete"),
     };
-    let in_use = match token.next() {
-        Some(w) => w == "n",
-        None => return None,
+
+    let in_use = match tokenizer.next() {
+        Some(Token::String(s)) => s == b"n".to_vec(),
+        Some(t) => panic!("Xref entry in_use token should be a regular string, found {t:?}"),
+        None => panic!("Xref entry incomplete"),
     };
+
     Some(XrefEntry {
         offset,
         generation,
@@ -112,17 +112,27 @@ fn xref_table_subsection_entry(line: &str) -> Option<XrefEntry> {
     })
 }
 
-fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
+fn xref_table_subsection(tok: &mut Tokenizer) -> XrefTable {
     let mut table = XrefTable(HashMap::new());
 
-    let (start, size) = xref_table_subsection_header(line.next().unwrap()).unwrap();
+    let start = match tok.next() {
+        Some(Token::Numeric(Number::Integer(n))) => n,
+        Some(t) => panic!("Table subsection header start should be an integer, found {t:?}"),
+        None => panic!("Unable to read table subsection header")
+    };
+
+    let size = match tok.next() {
+        Some(Token::Numeric(Number::Integer(n))) => n,
+        Some(t) => panic!("Table subsection header size should be an integer, found {t:?}"),
+        None => panic!("Unable to read table subsection header")
+    };
 
     for object_idx in start..start + size {
-        match xref_table_subsection_entry(line.next().unwrap()) {
+        match xref_table_subsection_entry(tok) {
             Some(o) => {
                 table
                     .0
-                    .insert((object_idx as i32, o.generation as i32), o.offset);
+                    .insert((object_idx, o.generation as i32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }
@@ -146,9 +156,8 @@ fn startxref(pdf_bytes: &[u8]) -> usize {
         .windows(pattern.len())
         .position(|w| w == pattern)
         .unwrap();
-    let xref_tmp = &XrefTable::default();
-    let mut lemmatizer = Lemmatizer::new(pdf_bytes, index, xref_tmp);
-    match lemmatizer.next() {
+    let mut tok = Tokenizer::new(pdf_bytes, index);
+    match tok.next() {
         Some(Token::String(s)) => {
             if s.as_slice() != b"startxref" {
                 panic!("Startxref string missing in tokenizer, found token string {s:?}")
@@ -157,43 +166,35 @@ fn startxref(pdf_bytes: &[u8]) -> usize {
         Some(t) => panic!("Startxref string missing in tokenizer, found token {t:?}"),
         None => panic!("End of stream"),
     };
-    match lemmatizer.next() {
+    match tok.next() {
         Some(Token::Numeric(Number::Integer(i))) => i as usize,
         Some(t) => panic!("Startxref integer missing in tokenizer, found token {t:?}"),
         None => panic!("End of stream"),
     }
 }
 
-fn xref_slice(pdf_bytes: &[u8]) -> &str {
-    let startxref = startxref(pdf_bytes);
-    match std::str::from_utf8(&pdf_bytes[startxref..]) {
-        Ok(s) => s,
-        Err(_) => panic!(
-            "Unable to read xref slice, {:?}",
-            std::str::from_utf8(&pdf_bytes[startxref..startxref + 800])
-        ),
+pub fn xref_parse(xref_stream: &[u8]) -> XrefTable {
+
+    let mut tok = Tokenizer::new(xref_stream, 0);
+
+    match tok.next() {
+        Some(Token::String(s)) => {
+            if s.as_slice() == b"xref" {
+                xref_table_subsection(&mut tok)
+            } else {
+                panic!("Startxref string missing in tokenizer, found token {s:?}")
+            }
+        }
+        Some(t) => panic!("Startxref string missing in tokenizer, found token {t:?}"),
+        None => panic!("End of stream"),
     }
-}
-
-pub fn xref_parse(xref_stream: &str) -> XrefTable {
-    // Read the cross reference table by lines
-    let mut line = xref_stream.lines();
-
-    // First line should be xref
-    match line.next() {
-        Some("xref") => (),
-        Some(s) => panic!("Xref first line contains a wrong token: {s}"),
-        None => panic!("Xref table is empty"),
-    };
-
-    // Read xref table
-    xref_table_subsection(&mut line)
 }
 
 // Parse PDF xref table and previous
 pub fn xref_table(file_stream: &[u8]) -> XrefTable {
-    let xref_stream = xref_slice(file_stream);
-    xref_parse(xref_stream)
+    // Read the last startxref in the file
+    let startxref = startxref(file_stream);
+    xref_parse(&file_stream[startxref..])
 }
 
 #[cfg(test)]
@@ -202,24 +203,10 @@ mod tests {
     use super::*;
 
     #[test]
-    fn xref_subsection_header() {
-        let s = "28 4";
-        let (first, size) = xref_table_subsection_header(s).unwrap();
-        assert_eq!(first, 28);
-        assert_eq!(size, 4)
-    }
-
-    #[test]
-    fn xref_subsection_header_invalid() {
-        let s = "blabla";
-        assert_eq!(xref_table_subsection_header(s), None);
-    }
-
-    #[test]
     fn xref_valid_entry_in_use() {
-        let entry = "0000000010 00000 n";
+        let mut entry = Tokenizer::new(b"0000000010 00000 n", 0);
         assert_eq!(
-            xref_table_subsection_entry(entry).unwrap(),
+            xref_table_subsection_entry(&mut entry).unwrap(),
             XrefEntry {
                 offset: 10,
                 generation: 0,
@@ -230,9 +217,9 @@ mod tests {
 
     #[test]
     fn xref_valid_entry_not_in_use() {
-        let entry = "0000000000 65535 f";
+        let mut entry = Tokenizer::new(b"0000000000 65535 f", 0);
         assert_eq!(
-            xref_table_subsection_entry(entry).unwrap(),
+            xref_table_subsection_entry(&mut entry).unwrap(),
             XrefEntry {
                 offset: 0,
                 generation: 65535,
@@ -242,14 +229,8 @@ mod tests {
     }
 
     #[test]
-    fn xref_invalid_entry() {
-        let entry = "<<";
-        assert_eq!(xref_table_subsection_entry(entry), None);
-    }
-
-    #[test]
     fn xref_table_valid() {
-        let xref_sample = "xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
+        let xref_sample = b"xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
         let table = xref_parse(xref_sample);
         assert_eq!(table.len(), 6);
         assert_eq!(table.get(&(1, 0)), Some(&10));
