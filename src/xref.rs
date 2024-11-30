@@ -175,10 +175,9 @@ fn xref_slice(pdf_bytes: &[u8]) -> &str {
     }
 }
 
-// Parse PDF xref table
-pub fn xref_table(file_stream: &[u8]) -> XrefTable {
+pub fn xref_parse(xref_stream: &str) -> XrefTable {
     // Read the cross reference table by lines
-    let mut line = xref_slice(file_stream).lines();
+    let mut line = xref_stream.lines();
 
     // First line should be xref
     match line.next() {
@@ -189,6 +188,12 @@ pub fn xref_table(file_stream: &[u8]) -> XrefTable {
 
     // Read xref table
     xref_table_subsection(&mut line)
+}
+
+// Parse PDF xref table and previous
+pub fn xref_table(file_stream: &[u8]) -> XrefTable {
+    let xref_stream = xref_slice(file_stream);
+    xref_parse(xref_stream)
 }
 
 #[cfg(test)]
@@ -244,8 +249,8 @@ mod tests {
 
     #[test]
     fn xref_table_valid() {
-        let xref_sample = b"xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
-        let table = xref_table(xref_sample);
+        let xref_sample = "xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
+        let table = xref_parse(xref_sample);
         assert_eq!(table.len(), 6);
         assert_eq!(table.get(&(1, 0)), Some(&10));
         assert_eq!(table.get(&(2, 0)), Some(&79));
