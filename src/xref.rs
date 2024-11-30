@@ -1,4 +1,7 @@
-use crate::{algebra::Number, tokenizer::{Token, Tokenizer}};
+use crate::{
+    algebra::Number,
+    tokenizer::{Token, Tokenizer},
+};
 
 use super::object;
 use core::panic;
@@ -86,7 +89,6 @@ pub struct XrefEntry {
 // }
 
 fn xref_table_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
-
     let offset = match tokenizer.next() {
         Some(Token::Numeric(Number::Integer(n))) => n as usize,
         Some(t) => panic!("Xref entry offset token should be an integer, found {t:?}"),
@@ -118,21 +120,19 @@ fn xref_table_subsection(tok: &mut Tokenizer) -> XrefTable {
     let start = match tok.next() {
         Some(Token::Numeric(Number::Integer(n))) => n,
         Some(t) => panic!("Table subsection header start should be an integer, found {t:?}"),
-        None => panic!("Unable to read table subsection header")
+        None => panic!("Unable to read table subsection header"),
     };
 
     let size = match tok.next() {
         Some(Token::Numeric(Number::Integer(n))) => n,
         Some(t) => panic!("Table subsection header size should be an integer, found {t:?}"),
-        None => panic!("Unable to read table subsection header")
+        None => panic!("Unable to read table subsection header"),
     };
 
     for object_idx in start..start + size {
         match xref_table_subsection_entry(tok) {
             Some(o) => {
-                table
-                    .0
-                    .insert((object_idx, o.generation as i32), o.offset);
+                table.0.insert((object_idx, o.generation as i32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }
@@ -174,7 +174,6 @@ fn startxref(pdf_bytes: &[u8]) -> usize {
 }
 
 pub fn xref_parse(xref_stream: &[u8]) -> XrefTable {
-
     let mut tok = Tokenizer::new(xref_stream, 0);
 
     match tok.next() {
@@ -192,7 +191,6 @@ pub fn xref_parse(xref_stream: &[u8]) -> XrefTable {
 
 // Parse PDF xref table and previous
 pub fn xref_table(file_stream: &[u8]) -> XrefTable {
-    // Read the last startxref in the file
     let startxref = startxref(file_stream);
     xref_parse(&file_stream[startxref..])
 }
