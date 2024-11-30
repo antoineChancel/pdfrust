@@ -36,7 +36,7 @@ pub enum Token<'a> {
     HexString(Vec<u8>),
     Name(String),
     Comment(Vec<u8>),
-    IndirectRef((i16, i16), &'a XrefTable, &'a [u8]),
+    IndirectRef((i32, i32), &'a XrefTable, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -337,7 +337,7 @@ impl<'a> Iterator for Tokenizer<'a> {
                     }
                     if is_numeric {
                         let numeric = std::str::from_utf8(&buf).unwrap();
-                        match numeric.parse::<i16>() {
+                        match numeric.parse::<i32>() {
                             Ok(n) => return Some(Token::Numeric(Number::Integer(n))),
                             Err(_) => {
                                 if let Ok(n) = numeric.parse::<f32>() {

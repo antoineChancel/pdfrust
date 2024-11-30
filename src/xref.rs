@@ -122,7 +122,7 @@ fn xref_table_subsection(line: &mut std::str::Lines) -> XrefTable {
             Some(o) => {
                 table
                     .0
-                    .insert((object_idx as i16, o.generation as i16), o.offset);
+                    .insert((object_idx as i32, o.generation as i32), o.offset);
             }
             None => panic!("Unable to read xref entry"),
         }

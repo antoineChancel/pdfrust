@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use crate::{algebra::Number, xref::XrefTable};
 
 pub type Name = String;
-pub type IndirectObject = (i16, i16);
+pub type IndirectObject = (i32, i32);
 pub type Array<'a> = Vec<Object<'a>>;
 pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 

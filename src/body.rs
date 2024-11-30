@@ -174,7 +174,7 @@ impl Font {
             for n in widths {
                 sum = sum + n.clone();
             }
-            Ok(sum / Number::Integer(widths.len() as i16) / Number::Real(1000.0))
+            Ok(sum / Number::Integer(widths.len() as i32) / Number::Real(1000.0))
         } else {
             Err("Font does not contain widths")
         }
@@ -183,7 +183,7 @@ impl Font {
     // horizontal displacement
     pub fn get_width(&self, c: u8) -> Result<Number, &str> {
         if let Some(Number::Integer(first_char)) = &self.first_char {
-            if i16::from(c) < *first_char {
+            if i32::from(c) < *first_char {
                 return Err("Cannot get character width from the current font range");
             }
         }
