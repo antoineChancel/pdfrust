@@ -15,6 +15,15 @@ impl From<Number> for f32 {
     }
 }
 
+impl Into<i32> for Number {
+    fn into(self) -> i32 {
+        match self {
+            Number::Integer(n) => n,
+            Number::Real(f) => f as i32,
+        }
+    }
+}
+
 impl From<Number> for usize {
     fn from(value: Number) -> Self {
         match value {

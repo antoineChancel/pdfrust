@@ -87,7 +87,7 @@ impl From<Dictionary<'_>> for StreamDictionary {
 type StreamContent = Vec<u8>;
 
 #[derive(Debug, PartialEq)]
-struct Stream(StreamDictionary, StreamContent);
+pub struct Stream(StreamDictionary, StreamContent);
 
 impl Stream {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
@@ -100,11 +100,11 @@ impl Stream {
         Stream(dict, stream)
     }
 
-    pub fn get_data(&self) -> String {
+    pub fn get_data(&self) -> Vec<u8> {
         match &self.0.filter {
             Some(Filter::FlateDecode) => flate_decode(&self.1),
             // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
-            None => std::str::from_utf8(&self.1).unwrap().to_string(),
+            None => self.1.clone(),
         }
     }
 }
@@ -275,9 +275,10 @@ impl From<Dictionary<'_>> for Font {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
                         Some(address) => match Object::new(bytes, address, xref) {
-                            Object::Stream(stream) => {
-                                Some(ToUnicodeCMap::from(Stream::from(stream).get_data()))
-                            }
+                            Object::Stream(stream) => Some(ToUnicodeCMap::from(
+                                String::from_utf8_lossy(&Stream::from(stream).get_data())
+                                    .to_string(),
+                            )),
                             o => panic!("ToUnicode should be a stream object, found {o:?}"),
                         },
                         None => panic!("ToUnicode stream object not found in xref table"),
@@ -526,7 +527,7 @@ impl Page {
     fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => stream.get_data(),
+            Some(stream) => String::from_utf8_lossy(&stream.get_data()).to_string(),
             None => panic!("Contents should not be empty"),
         }
     }

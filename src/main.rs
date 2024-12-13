@@ -33,22 +33,7 @@ impl Config {
 fn main() {
     let config = Config::new(env::args());
     let file = std::fs::read(config.path).unwrap();
-
-    // Pdf header with specifications version
-    // let version = pdfrust::pdf_version(&file[..8]);
-    // println!("Pdf version: {version}");
-
-    // Check that pdf file ends with %%EOF
-    let file = file.trim_ascii();
-    if &file[file.len() - 5..] != b"%%EOF" {
-        panic!("PDF file is corrupted; not consistent trailing charaters");
-    }
-
-    // Cross reference table
-    let xref = pdfrust::xref::xref_table(file);
-
-    // Trailer
-    let trailer = pdfrust::trailer(file, &xref);
-    let text = trailer.extract(config.flags);
-    println!("{text}");
+    let pdf = pdfrust::Pdf::from(file);
+    let content = pdf.extract(config.flags);
+    println!("{content}");
 }

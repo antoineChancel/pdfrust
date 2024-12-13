@@ -53,17 +53,40 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
+pub struct Pdf {
+    xref: XrefTable,
+    trailer: trailer::Trailer
+}
+
+impl From<Vec<u8>> for Pdf {
+    fn from(value: Vec<u8>) -> Self {
+        let file = value.trim_ascii();
+        if &file[file.len() - 5..] != b"%%EOF" {
+            panic!("PDF file is corrupted; not consistent trailing charaters");
+        }
+        let xref = xref::xref_table(&value);
+        let trailer = trailer(&value, &xref);
+        Pdf { xref, trailer }
+    }
+}
+
+impl Pdf {
+    pub fn extract(&self, e: Extract) -> String {
+        self.trailer.extract(e)
+    }
+}
+
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
 pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trailer {
     // locate trailer address
-    let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
+    let start_trailer = match file_stream.windows(7).position(|w| w == b"trailer") {
         Some(i) => i,
         None => panic!("Missing trailer token in the entire PDF"),
     };
     // slice bytes just after trailer token
-    trailer::Trailer::new(file_stream, starttrailer + 8, xref)
+    trailer::Trailer::new(file_stream, start_trailer + 8, xref)
 }
 
 pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> body::Catalog {
