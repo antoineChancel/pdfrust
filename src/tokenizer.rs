@@ -1,7 +1,10 @@
 use core::panic;
 use std::{char, iter::Peekable, slice::Iter};
 
-use crate::{algebra::Number, xref::XrefTable};
+use crate::{
+    algebra::Number,
+    xref::XRef,
+};
 
 // Tokenizer for PDF objects
 #[derive(Debug)]
@@ -36,7 +39,7 @@ pub enum Token<'a> {
     HexString(Vec<u8>),
     Name(String),
     Comment(Vec<u8>),
-    IndirectRef((i32, i32), &'a XrefTable, &'a [u8]),
+    IndirectRef((i32, i32), &'a XRef, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -88,11 +91,11 @@ impl From<&u8> for CharacterSet {
 
 pub struct Lemmatizer<'a> {
     tokenizer: Tokenizer<'a>,
-    xref: &'a XrefTable,
+    xref: &'a XRef,
 }
 
 impl<'a> Lemmatizer<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Lemmatizer<'a> {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XRef) -> Lemmatizer<'a> {
         Lemmatizer {
             tokenizer: Tokenizer::new(bytes, curr_idx),
             xref,
@@ -364,6 +367,8 @@ impl<'a> Iterator for Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
 
+    use crate::xref::XRefTable;
+
     use super::*;
 
     #[test]
@@ -488,7 +493,7 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_1() {
-        let xref = XrefTable::new();
+        let xref = XRef::XRefTable(XRefTable::new());
         let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, &xref);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
@@ -514,7 +519,7 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_0() {
-        let xref = XrefTable::new();
+        let xref = XRef::XRefTable(XRefTable::new());
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n";
         let mut pdf = Lemmatizer::new(bytes, 0, &xref);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));

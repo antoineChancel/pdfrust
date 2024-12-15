@@ -12,7 +12,7 @@ use crate::{
     content,
     filters::flate_decode,
     object::{Array, Dictionary, Name, Object},
-    xref::XrefTable,
+    xref::XRef,
     Extract,
 };
 
@@ -90,7 +90,7 @@ type StreamContent = Vec<u8>;
 pub struct Stream(StreamDictionary, StreamContent);
 
 impl Stream {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
             Object::Stream(StreamObject { header, bytes }) => {
                 (StreamDictionary::from(header), bytes)
@@ -122,7 +122,7 @@ pub enum PageTreeKids {
 }
 
 impl PageTreeKids {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => match dict.get("Type") {
                 Some(Object::Name(name)) => match name.as_str() {
@@ -338,7 +338,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -379,7 +379,7 @@ pub struct PageTreeNode {
 }
 
 impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Rc<Self> {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Rc<Self> {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => {
                 let page_tree_node = Rc::new(Self::from(dict));
@@ -480,7 +480,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -586,10 +586,10 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
-            _ => panic!("Trailer should be a dictionary"),
+            o => panic!("Catalog should be a dictionary, found {o:?}"),
         }
     }
 
@@ -617,11 +617,13 @@ impl From<Dictionary<'_>> for Catalog {
 #[cfg(test)]
 mod tests {
 
+    use crate::xref::XRefTable;
+
     use super::*;
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XrefTable::new());
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XRef::XRefTable(XRefTable::new()));
         assert!(catalog.pages.is_none())
     }
 }

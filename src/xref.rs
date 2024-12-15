@@ -6,30 +6,51 @@ use crate::{
 };
 
 use super::object;
-use core::panic;
 use std::{collections::HashMap, iter::Peekable};
 
-type Offset = usize;
+#[derive(Debug, PartialEq)]
+pub enum XRef {
+    XRefTable(XRefTable),
+    XRefStream(XRefStream),
+}
+
+impl XRef {
+    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<usize> {
+        match self {
+            XRef::XRefStream(xref) => xref.get(key),
+            XRef::XRefTable(xref) => xref.get_and_fix(key, bytes),
+        }
+    }
+}
 
 #[derive(Debug, PartialEq)]
-pub struct XrefTable(HashMap<object::IndirectObject, Offset>);
+pub struct XRefTable(HashMap<object::IndirectObject, (usize, bool)>);
 
-impl Default for XrefTable {
+impl Default for XRefTable {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl XrefTable {
+impl XRefTable {
     pub fn new() -> Self {
-        XrefTable(HashMap::new())
+        XRefTable(HashMap::new())
     }
 
-    pub fn get(&self, key: &object::IndirectObject) -> Option<&Offset> {
-        self.0.get(key)
+    pub fn get(&self, key: &object::IndirectObject) -> Option<&usize> {
+        match self.0.get(key) {
+            Some(v) => {
+                if v.1 {
+                    Some(&v.0)
+                } else {
+                    panic!("XReftable object was freed")
+                }
+            }
+            None => None,
+        }
     }
 
-    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<Offset> {
+    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<usize> {
         match self.get(key) {
             Some(offset) => {
                 let mut pattern = format!("{} {} obj", key.0, key.1).as_bytes().to_owned();
@@ -97,8 +118,8 @@ fn xref_table_subsection_entry(tokenizer: &mut Peekable<Tokenizer>) -> Option<Xr
     })
 }
 
-fn xref_table_subsection(tok: &mut Peekable<Tokenizer>) -> XrefTable {
-    let mut table = XrefTable(HashMap::new());
+fn xref_table_subsection(tok: &mut Peekable<Tokenizer>) -> XRefTable {
+    let mut table = XRefTable(HashMap::new());
 
     let start = match tok.next() {
         Some(Token::Numeric(Number::Integer(n))) => n,
@@ -115,9 +136,9 @@ fn xref_table_subsection(tok: &mut Peekable<Tokenizer>) -> XrefTable {
     for object_idx in start..start + size {
         match xref_table_subsection_entry(tok) {
             Some(o) => {
-                if o.in_use {
-                    table.0.insert((object_idx, o.generation as i32), o.number);
-                }
+                table
+                    .0
+                    .insert((object_idx, o.generation as i32), (o.number, o.in_use));
             }
             None => panic!("Unable to read xref entry"),
         }
@@ -158,13 +179,45 @@ fn startxref(pdf_bytes: &[u8]) -> usize {
     }
 }
 
-#[derive(Debug)]
-struct XRefStream {
-    size: usize,                // trailer size entry (object number used in this XRef)
-    // index: Vec<(usize, usize)>, // subsection object number ranges
-    // prev: Option<i32>,          // byte offset of previous xref
-    w: (usize, usize, usize),         // xref stream entry sizes in bytes
-    stream: Vec<u8>,
+#[derive(Debug, PartialEq)]
+pub struct XRefStream {
+    size: usize,              // trailer size entry (object number used in this XRef)
+    index: (usize, usize),    // subsection object number ranges
+    prev: Option<i32>,        // byte offset of previous xref
+    w: (usize, usize, usize), // xref stream entry sizes in bytes
+    stream: Vec<u8>,          // uncompressed xref entries
+}
+
+impl XRefStream {
+    // convert slice of entry bytes to numbers
+    // high bytes first
+    fn num(bytes: &[u8]) -> usize {
+        let mut res: usize = 0;
+        for b in bytes {
+            res = res * 256 + *b as usize
+        }
+        res
+    }
+
+    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
+        let object_idx = key.0 as usize;
+        // check that object number is in index range
+        if object_idx > self.index.1 {
+            panic!("Object number {:?} is out of index", key.0)
+        }
+        let entry_size = self.w.0 + self.w.1 + self.w.2;
+        let entry = &self.stream[object_idx * entry_size..object_idx * entry_size + entry_size];
+        println!("{entry:?}");
+        // cross reference entries in page 109
+        let entry_type = XRefStream::num(&entry[..self.w.0]);
+        let entry_mid = XRefStream::num(&entry[self.w.0..self.w.0 + self.w.1]);
+        match entry_type {
+            1 => Some(entry_mid),
+            0 => None,                             // not implemented yet - freed objects
+            2 => self.get(&(entry_mid as i32, 0)), // not implemented yet - compressed object
+            _ => panic!("Cross reference stream data type can only be 0, 1 or 2"),
+        }
+    }
 }
 
 impl From<object::Stream<'_>> for XRefStream {
@@ -178,6 +231,7 @@ impl From<object::Stream<'_>> for XRefStream {
                 panic!("Cross reference stream dictionnary does not contains the required Size key")
             }
         };
+
         match value.header.get("DecodeParms") {
             Some(Object::Dictionary(_)) => {
                 panic!("Data encoded with custom filters which is currently not supported")
@@ -187,26 +241,33 @@ impl From<object::Stream<'_>> for XRefStream {
             }
             None => (),
         };
+
         XRefStream {
             size,
-            // index: match value.header.get("Index") {
-            //     Some(Object::Array(a)) => a.windows(2).map(|subsection| (
-            //         match subsection[0] {
-            //             Object::Numeric(Number::Integer(n)) => n as usize,
-            //             _ => panic!()
-            //         },
-            //         match subsection[1] {
-            //             Object::Numeric(Number::Integer(n)) => n as usize,
-            //             _ => panic!()
-            //         })).collect(),
-            //     Some(o) => panic!("Cross reference stream dictionnary contains a Index value with wrong type, found {o:?}"),
-            //     None => vec![(0, size)] // default value (cf page 108)
-            // },
-            // prev: match value.header.get("Prev") {
-            //     Some(Object::Numeric(Number::Integer(n))) => Some(*n),
-            //     Some(o) => panic!("Cross reference stream dictionnary contains a Prev value with wrong type, found {o:?}"),
-            //     None => None
-            // },
+            index: match value.header.get("Index") {
+                Some(Object::Array(a)) => {
+                    if a.len() != 2 {
+                        panic!("Cross reference stream key 'Index' is not an array of length 2");
+                    }
+                    (
+                        match a[0] {
+                            Object::Numeric(Number::Integer(n)) => n as usize,
+                            _ => panic!()
+                        },
+                        match a[1] {
+                            Object::Numeric(Number::Integer(n)) => n as usize,
+                            _ => panic!()
+                        }
+                    )
+                }
+                Some(o) => panic!("Cross reference stream dictionnary contains a Index value with wrong type, found {o:?}"),
+                None => (0, size) // default value (cf page 108)
+            },
+            prev: match value.header.get("Prev") {
+                Some(Object::Numeric(Number::Integer(n))) => Some(*n),
+                Some(o) => panic!("Cross reference stream dictionnary contains a Prev value with wrong type, found {o:?}"),
+                None => None
+            },
             w: match value.header.get("W") {
                 Some(Object::Array(a)) => {
                     (
@@ -227,57 +288,33 @@ impl From<object::Stream<'_>> for XRefStream {
                 Some(o) => panic!("Cross reference stream dictionnary key W should contain an array, found {o:?}"),
                 None => panic!("Cross reference stream dictionnary key W is required")
             },
+            // header: &value.header,
             stream: flate_decode(&value.bytes)
         }
     }
 }
 
-pub fn xref_parse(xref_stream: &[u8]) -> XrefTable {
-    fn num(bytes: &[u8]) -> usize {
-        let mut res: usize = 0;
-        for b in bytes {
-            res = res * 256 + *b as usize
-        }
-        res
-    }
-
+pub fn xref_parse(xref_stream: &[u8]) -> XRef {
     let mut tok = Tokenizer::new(xref_stream, 0).peekable();
 
     match tok.peek() {
+        // Cross reference table
         Some(Token::String(s)) => {
-            // Xref table content
             if s.as_slice() == b"xref" {
                 tok.next(); // skip
-                xref_table_subsection(&mut tok)
+                XRef::XRefTable(xref_table_subsection(&mut tok))
             } else {
                 panic!("Startxref string missing in tokenizer, found token {s:?}")
             }
         }
+        // Cross reference stream object
         Some(Token::Numeric(_)) => {
-            match Object::try_from(&mut Lemmatizer::new(xref_stream, 0, &XrefTable::new())) {
-                Ok(Object::Stream(s)) => {
-                    let mut xref_table = XrefTable::new();
-                    let xref_stream = XRefStream::from(s);
-                    let entry_size = xref_stream.w.0 + xref_stream.w.1 + xref_stream.w.2;
-                    for object_idx in 0..xref_stream.size {
-                        let entry = &xref_stream.stream
-                            [object_idx * entry_size..object_idx * entry_size + entry_size];
-                        // cross reference entries in page 109
-                        let entry_type = num(&entry[..xref_stream.w.0]);
-                        match entry_type {
-                            1 => {
-                                let object_offset = num(&entry[xref_stream.w.0..xref_stream.w.0+xref_stream.w.1]);
-                                let object_generation = num(&entry[xref_stream.w.1..]);
-                                xref_table.0.insert((object_idx as i32, object_generation as i32), object_offset);
-                            },
-                            0 => (), // not implemented yet
-                            2 => (), // not implemented yet
-                            _ => panic!("Cross reference stream data type can only be 0, 1 or 2")
-                        }
-                        
-                    };
-                    xref_table
-                }
+            match Object::try_from(&mut Lemmatizer::new(
+                xref_stream,
+                0,
+                &XRef::XRefTable(XRefTable::new()),
+            )) {
+                Ok(Object::Stream(s)) => XRef::XRefStream(XRefStream::from(s)),
                 Ok(o) => panic!("Xref object cannot be of type {o:?}"),
                 Err(s) => panic!("{s:?}"),
             }
@@ -287,10 +324,11 @@ pub fn xref_parse(xref_stream: &[u8]) -> XrefTable {
     }
 }
 
-// Parse PDF xref table and previous
-pub fn xref_table(file_stream: &[u8]) -> XrefTable {
+pub fn xref_table(file_stream: &[u8]) -> (XRef, usize) {
+    // read last startxref bytes offset
     let startxref = startxref(file_stream);
-    xref_parse(&file_stream[startxref..])
+    // parse the last cross reference table or object stream
+    (xref_parse(&file_stream[startxref..]), startxref)
 }
 
 #[cfg(test)]
@@ -327,10 +365,22 @@ mod tests {
     #[test]
     fn xref_table_valid() {
         let xref_sample = b"xref\n0 6\n0000000000 65535 f \n0000000010 00000 n \n0000000079 00000 n \n0000000173 00000 n \n0000000301 00000 n \n0000000380 00000 n";
-        let table = xref_parse(xref_sample);
-        assert_eq!(table.len(), 5);
+        let table = match xref_parse(xref_sample) {
+            XRef::XRefTable(t) => t,
+            XRef::XRefStream(_) => panic!(),
+        };
+        assert_eq!(table.len(), 6);
         assert_eq!(table.get(&(1, 0)), Some(&10));
         assert_eq!(table.get(&(2, 0)), Some(&79));
         assert_eq!(table.get(&(5, 0)), Some(&380));
+    }
+
+    #[test]
+    fn xref_stream_valid() {
+        let xref_sample = b"22 0 obj\n<<\n /Type /XRef\n/Index [0 23]\n/Size 23\n/W [1 2 1]\n/Root 20 0 R\n/Info 21 0 R\n/ID [<8EBF2018CB18810B2C88BDD4E7324774> <8EBF2018CB18810B2C88BDD4E7324774>]\n/Length 0        \n/Filter /FlateDecode\n>>\nstream\n\nendstream\nendobj";
+        match xref_parse(xref_sample) {
+            XRef::XRefStream(t) => t,
+            XRef::XRefTable(_) => panic!(),
+        };
     }
 }

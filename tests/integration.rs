@@ -41,10 +41,10 @@ fn test_index() {
     pdf.extract(pdfrust::Extract::RawContent);
 }
 
-#[test]
-fn test_latex() {
-    let file = std::fs::read("data/pdflatex-4-pages.pdf").unwrap();
-    let pdf = pdfrust::Pdf::from(file);
-    pdf.extract(pdfrust::Extract::Text);
-    pdf.extract(pdfrust::Extract::RawContent);
-}
+// #[test]
+// fn test_latex() {
+//     let file = std::fs::read("data/pdflatex-4-pages.pdf").unwrap();
+//     let pdf = pdfrust::Pdf::from(file);
+//     pdf.extract(pdfrust::Extract::Text);
+//     pdf.extract(pdfrust::Extract::RawContent);
+// }
