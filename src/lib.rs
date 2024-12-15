@@ -1,7 +1,5 @@
 use std::fmt::Display;
 
-use xref::XrefTable;
-
 pub mod algebra;
 pub mod body;
 pub mod cmap;
@@ -53,23 +51,57 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
+pub struct Pdf {
+    _xref: xref::XRef,
+    trailer: trailer::Trailer,
+}
+
+impl From<Vec<u8>> for Pdf {
+    fn from(value: Vec<u8>) -> Self {
+        // remove leading and trailing whitespaces
+        let file = value.trim_ascii();
+        // check file bytes ends with %%EOF
+        if &file[file.len() - 5..] != b"%%EOF" {
+            panic!("PDF file is corrupted; not consistent trailing charaters");
+        }
+        let (xref, startxref) = xref::xref_table(&value);
+        let trailer = trailer(&value, startxref, &xref);
+        Pdf { _xref: xref, trailer }
+    }
+}
+
+impl Pdf {
+    pub fn extract(&self, e: Extract) -> String {
+        self.trailer.extract(e)
+    }
+}
+
 // Parse PDF trailer
 // Implementation note 13 :  Acrobat viewers require only that the header
 // appear somewhere within the first 1024 bytes of the file.
-pub fn trailer<'a>(file_stream: &'a [u8], xref: &'a XrefTable) -> trailer::Trailer {
-    // locate trailer address
-    let starttrailer = match file_stream.windows(7).position(|w| w == b"trailer") {
-        Some(i) => i,
-        None => panic!("Missing trailer token in the entire PDF"),
-    };
-    // slice bytes just after trailer token
-    trailer::Trailer::new(file_stream, starttrailer + 8, xref)
+pub fn trailer<'a>(
+    file_stream: &'a [u8],
+    startxref: usize,
+    xref: &'a xref::XRef,
+) -> trailer::Trailer {
+    match xref {
+        xref::XRef::XRefTable(_) => {
+            // locate trailer address
+            let start_trailer = match file_stream.windows(7).position(|w| w == b"trailer") {
+                Some(i) => i,
+                None => panic!("Missing trailer token in the entire PDF"),
+            };
+            // slice bytes just after trailer token
+            trailer::Trailer::new(file_stream, start_trailer + 8, xref)
+        }
+        xref::XRef::XRefStream(_) => trailer::Trailer::new(file_stream, startxref, xref),
+    }
 }
 
-pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> body::Catalog {
+pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &xref::XRef) -> body::Catalog {
     body::Catalog::new(file_stream, curr_idx, xref)
 }
 
-pub fn info(file_stream: &[u8], curr_idx: usize, xref: &XrefTable) -> info::Info {
+pub fn info(file_stream: &[u8], curr_idx: usize, xref: &xref::XRef) -> info::Info {
     info::Info::new(file_stream, curr_idx, xref)
 }

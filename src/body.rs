@@ -12,7 +12,7 @@ use crate::{
     content,
     filters::flate_decode,
     object::{Array, Dictionary, Name, Object},
-    xref::XrefTable,
+    xref::XRef,
     Extract,
 };
 
@@ -87,10 +87,10 @@ impl From<Dictionary<'_>> for StreamDictionary {
 type StreamContent = Vec<u8>;
 
 #[derive(Debug, PartialEq)]
-struct Stream(StreamDictionary, StreamContent);
+pub struct Stream(StreamDictionary, StreamContent);
 
 impl Stream {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
             Object::Stream(StreamObject { header, bytes }) => {
                 (StreamDictionary::from(header), bytes)
@@ -100,11 +100,11 @@ impl Stream {
         Stream(dict, stream)
     }
 
-    pub fn get_data(&self) -> String {
+    pub fn get_data(&self) -> Vec<u8> {
         match &self.0.filter {
             Some(Filter::FlateDecode) => flate_decode(&self.1),
             // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
-            None => std::str::from_utf8(&self.1).unwrap().to_string(),
+            None => self.1.clone(),
         }
     }
 }
@@ -122,7 +122,7 @@ pub enum PageTreeKids {
 }
 
 impl PageTreeKids {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => match dict.get("Type") {
                 Some(Object::Name(name)) => match name.as_str() {
@@ -174,7 +174,7 @@ impl Font {
             for n in widths {
                 sum = sum + n.clone();
             }
-            Ok(sum / Number::Integer(widths.len() as i16) / Number::Real(1000.0))
+            Ok(sum / Number::Integer(widths.len() as i32) / Number::Real(1000.0))
         } else {
             Err("Font does not contain widths")
         }
@@ -183,7 +183,7 @@ impl Font {
     // horizontal displacement
     pub fn get_width(&self, c: u8) -> Result<Number, &str> {
         if let Some(Number::Integer(first_char)) = &self.first_char {
-            if i16::from(c) < *first_char {
+            if i32::from(c) < *first_char {
                 return Err("Cannot get character width from the current font range");
             }
         }
@@ -275,9 +275,10 @@ impl From<Dictionary<'_>> for Font {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
                         Some(address) => match Object::new(bytes, address, xref) {
-                            Object::Stream(stream) => {
-                                Some(ToUnicodeCMap::from(Stream::from(stream).get_data()))
-                            }
+                            Object::Stream(stream) => Some(ToUnicodeCMap::from(
+                                String::from_utf8_lossy(&Stream::from(stream).get_data())
+                                    .to_string(),
+                            )),
                             o => panic!("ToUnicode should be a stream object, found {o:?}"),
                         },
                         None => panic!("ToUnicode stream object not found in xref table"),
@@ -337,7 +338,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -378,7 +379,7 @@ pub struct PageTreeNode {
 }
 
 impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Rc<Self> {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Rc<Self> {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => {
                 let page_tree_node = Rc::new(Self::from(dict));
@@ -479,7 +480,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -526,7 +527,7 @@ impl Page {
     fn extract_stream(&self) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => stream.get_data(),
+            Some(stream) => String::from_utf8_lossy(&stream.get_data()).to_string(),
             None => panic!("Contents should not be empty"),
         }
     }
@@ -585,10 +586,10 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XrefTable) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
-            _ => panic!("Trailer should be a dictionary"),
+            o => panic!("Catalog should be a dictionary, found {o:?}"),
         }
     }
 
@@ -616,11 +617,13 @@ impl From<Dictionary<'_>> for Catalog {
 #[cfg(test)]
 mod tests {
 
+    use crate::xref::XRefTable;
+
     use super::*;
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XrefTable::new());
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XRef::XRefTable(XRefTable::new()));
         assert!(catalog.pages.is_none())
     }
 }

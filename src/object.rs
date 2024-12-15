@@ -2,10 +2,13 @@
 pub use crate::tokenizer::{Lemmatizer, Token};
 use std::collections::HashMap;
 
-use crate::{algebra::Number, xref::XrefTable};
+use crate::{
+    algebra::Number,
+    xref::XRef,
+};
 
 pub type Name = String;
-pub type IndirectObject = (i16, i16);
+pub type IndirectObject = (i32, i32);
 pub type Array<'a> = Vec<Object<'a>>;
 pub type Dictionary<'a> = HashMap<Name, Object<'a>>;
 
@@ -30,7 +33,7 @@ pub enum Object<'a> {
     String(String),
     HexString(Vec<u8>),
     Numeric(Number),
-    Ref(IndirectObject, &'a XrefTable, &'a [u8]),
+    Ref(IndirectObject, &'a XRef, &'a [u8]),
 }
 
 impl<'a> TryFrom<&mut Lemmatizer<'a>> for Array<'a> {
@@ -155,7 +158,7 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
 }
 
 impl<'a> Object<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XrefTable) -> Self {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XRef) -> Self {
         Self::try_from(&mut Lemmatizer::new(bytes, curr_idx, xref)).unwrap()
     }
 }
@@ -187,13 +190,13 @@ impl<'a> TryFrom<Token<'a>> for Object<'a> {
 #[cfg(test)]
 mod tests {
 
-    use crate::{tokenizer::Lemmatizer, xref};
+    use crate::{tokenizer::Lemmatizer, xref::XRefTable};
 
     use super::*;
 
     #[test]
     fn test_dictionnary_0() {
-        let xref = &xref::XrefTable::new();
+        let xref = &XRef::XRefTable(XRefTable::new());
         let mut t = Lemmatizer::new(
             b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>",
             0,
@@ -216,7 +219,7 @@ mod tests {
 
     #[test]
     fn test_object_trailer() {
-        let xref = &XrefTable::new();
+        let xref = &XRef::XRefTable(XRefTable::new());
         let bytes = b"<</Size 14/Root 12 0 R\n/Info 13 0 R\n/ID [ <6285DCD147BBD7C07D63844C37B01D23>\n<6285DCD147BBD7C07D63844C37B01D23> ]\n/DocChecksum /700D49F24CC4E7F9CC731421E1DAB422\n>>\nstartxref\n12125\n";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {
@@ -266,7 +269,7 @@ mod tests {
 
     #[test]
     fn test_object_catalog() {
-        let xref = &XrefTable::new();
+        let xref = &XRef::XRefTable(XRefTable::new());
         let mut t = Lemmatizer::new(
             b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj",
             0,
@@ -286,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_object_pages() {
-        let xref = &XrefTable::new();
+        let xref = &&XRef::XRefTable(XRefTable::new());
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, &xref);
         match Object::try_from(&mut t) {
@@ -320,7 +323,7 @@ mod tests {
 
     #[test]
     fn test_object_stream() {
-        let xref = &XrefTable::new();
+        let xref = &XRef::XRefTable(XRefTable::new());
         let bytes = b"4 0 obj\n<<\n  /Length 10\n>>\nstream\n1234567890\nendstream\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {
@@ -341,7 +344,7 @@ mod tests {
 
     #[test]
     fn test_object_page() {
-        let xref = &XrefTable::new();
+        let xref = &&XRef::XRefTable(XRefTable::new());
         let bytes = b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {

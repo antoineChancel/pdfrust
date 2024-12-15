@@ -2,7 +2,7 @@ use std::{fmt::Display, ops};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum Number {
-    Integer(i16),
+    Integer(i32),
     Real(f32),
 }
 
@@ -11,6 +11,15 @@ impl From<Number> for f32 {
         match value {
             Number::Integer(i) => i as f32,
             Number::Real(f) => f,
+        }
+    }
+}
+
+impl Into<i32> for Number {
+    fn into(self) -> i32 {
+        match self {
+            Number::Integer(n) => n,
+            Number::Real(f) => f as i32,
         }
     }
 }
@@ -29,11 +38,11 @@ impl std::ops::Div for Number {
     fn div(self, rhs: Self) -> Self::Output {
         match self {
             Number::Integer(a) => match rhs {
-                Number::Integer(b) => Number::Real(f32::from(a) / f32::from(b)),
-                Number::Real(b) => Number::Real(f32::from(a) / b),
+                Number::Integer(b) => Number::Real(a as f32 / b as f32),
+                Number::Real(b) => Number::Real(a as f32 / b),
             },
             Number::Real(a) => match rhs {
-                Number::Integer(b) => Number::Real(a / f32::from(b)),
+                Number::Integer(b) => Number::Real(a / b as f32),
                 Number::Real(b) => Number::Real(a / b),
             },
         }
@@ -56,10 +65,10 @@ impl std::ops::Add for Number {
         match self {
             Number::Integer(a) => match rhs {
                 Number::Integer(b) => Number::Integer(a + b),
-                Number::Real(b) => Number::Real(f32::from(a) + b),
+                Number::Real(b) => Number::Real(a as f32 + b),
             },
             Number::Real(a) => match rhs {
-                Number::Integer(b) => Number::Real(a + f32::from(b)),
+                Number::Integer(b) => Number::Real(a + b as f32),
                 Number::Real(b) => Number::Real(a + b),
             },
         }
@@ -72,10 +81,10 @@ impl std::ops::Mul for Number {
         match self {
             Number::Integer(a) => match rhs {
                 Number::Integer(b) => Number::Integer(a * b),
-                Number::Real(b) => Number::Real(f32::from(a) * b),
+                Number::Real(b) => Number::Real(a as f32 * b),
             },
             Number::Real(a) => match rhs {
-                Number::Integer(b) => Number::Real(a * f32::from(b)),
+                Number::Integer(b) => Number::Real(a * b as f32),
                 Number::Real(b) => Number::Real(a * b),
             },
         }
