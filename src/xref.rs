@@ -153,7 +153,6 @@ impl Default for XRefTable {
 }
 
 impl XRefTable {
-    
     fn read_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
         // either the next obj num if free or byte offset if in use
         let number = match tokenizer.next() {
