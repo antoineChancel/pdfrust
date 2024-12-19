@@ -121,7 +121,9 @@ impl From<Tokenizer<'_>> for XRefTable {
             },
             // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
             prev: match trailer.get("Prev") {
-                Some(Object::Numeric(Number::Integer(offset))) => Some(Box::new(XRef::from(Tokenizer::new(tokenizer.bytes, *offset as usize)))),
+                Some(Object::Numeric(Number::Integer(offset))) => Some(Box::new(XRef::from(
+                    Tokenizer::new(tokenizer.bytes, *offset as usize),
+                ))),
                 None => None,
                 _ => panic!("Prev should be a numeric"),
             },
@@ -236,7 +238,7 @@ impl XRefTable {
             None => match &self.prev {
                 // look for the key in previous xref section
                 Some(xref) => xref.get(key),
-                None => None
+                None => None,
             },
         }
     }
@@ -465,9 +467,9 @@ mod tests {
             XRef::XRefStream(_) => panic!(),
         };
         assert_eq!(table.len(), 6);
-        assert_eq!(table.get(&(1, 0)), Some(&10));
-        assert_eq!(table.get(&(2, 0)), Some(&79));
-        assert_eq!(table.get(&(5, 0)), Some(&380));
+        assert_eq!(table.get(&(1, 0)), Some(10));
+        assert_eq!(table.get(&(2, 0)), Some(79));
+        assert_eq!(table.get(&(5, 0)), Some(380));
     }
 
     #[test]
