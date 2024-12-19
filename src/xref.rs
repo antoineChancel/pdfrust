@@ -17,8 +17,15 @@ pub enum XRef {
 impl XRef {
     pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<usize> {
         match self {
-            XRef::XRefStream(xref) => xref.get(key),
+            XRef::XRefStream(stream) => stream.get(key),
             XRef::XRefTable(xref) => xref.get_and_fix(key, bytes),
+        }
+    }
+
+    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
+        match self {
+            XRef::XRefStream(stream) => stream.get(key),
+            XRef::XRefTable(xref) => xref.get(key),
         }
     }
 
@@ -30,13 +37,17 @@ impl XRef {
     }
 
     pub fn new(bytes: &[u8], offset: usize) -> Self {
-        let mut tok = Tokenizer::new(bytes, offset);
+        Self::from(Tokenizer::new(bytes, offset))
+    }
+}
 
-        match tok.clone().peekable().peek() {
+impl From<Tokenizer<'_>> for XRef {
+    fn from(value: Tokenizer<'_>) -> Self {
+        match value.clone().peekable().peek() {
             // Cross reference table starts with "xref" token (page 93)
-            Some(Token::String(_)) => XRef::XRefTable(XRefTable::from(&mut tok)),
+            Some(Token::String(_)) => XRef::XRefTable(XRefTable::from(value)),
             // Cross reference stream object starts with "0 0 obj"
-            Some(Token::Numeric(_)) => match Object::from(tok) {
+            Some(Token::Numeric(_)) => match Object::from(value) {
                 Object::Stream(s) => XRef::XRefStream(XRefStream::from(s)),
                 o => panic!("Xref object cannot be of type {o:?}"),
             },
@@ -51,7 +62,7 @@ pub struct XRefTable {
     // Trailer - Object number
     size: Number,
     // Trailer - Byte offset from the beginning of the file to the beginning of the previous cross-reference section
-    prev: Option<Number>,
+    prev: Option<Box<XRef>>,
     // Trailer - Catalogue dictionnary or a reference to the root object of the page tree
     root: Option<(i32, i32)>,
     // Trailer - Encryption dictionnary
@@ -64,8 +75,8 @@ pub struct XRefTable {
     table: HashMap<object::IndirectObject, (usize, bool)>,
 }
 
-impl From<&mut Tokenizer<'_>> for XRefTable {
-    fn from(tokenizer: &mut Tokenizer<'_>) -> Self {
+impl From<Tokenizer<'_>> for XRefTable {
+    fn from(mut tokenizer: Tokenizer<'_>) -> Self {
         // Check that xref table starts with "xref" bytes
         match tokenizer.next() {
             Some(Token::String(s)) => {
@@ -81,7 +92,7 @@ impl From<&mut Tokenizer<'_>> for XRefTable {
         };
 
         // Read table subsections
-        let table = XRefTable::read_table_subsection(tokenizer);
+        let table = XRefTable::read_table_subsection(&mut tokenizer);
 
         // Check that xref table trailer is starting with "trailer" bytes
         match tokenizer.next() {
@@ -110,7 +121,7 @@ impl From<&mut Tokenizer<'_>> for XRefTable {
             },
             // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
             prev: match trailer.get("Prev") {
-                Some(Object::Numeric(n)) => Some(n.clone()),
+                Some(Object::Numeric(Number::Integer(offset))) => Some(Box::new(XRef::from(Tokenizer::new(tokenizer.bytes, *offset as usize)))),
                 None => None,
                 _ => panic!("Prev should be a numeric"),
             },
@@ -209,20 +220,24 @@ impl XRefTable {
     }
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
-        let (offset, _in_use) = self.table.get(&self.root.unwrap()).unwrap();
-        Some(*offset)
+        println!("{:?}", self.root.unwrap());
+        self.get(&self.root.unwrap())
     }
 
-    pub fn get(&self, key: &object::IndirectObject) -> Option<&usize> {
+    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
         match self.table.get(key) {
             Some(v) => {
                 if v.1 {
-                    Some(&v.0)
+                    Some(v.0)
                 } else {
                     panic!("XReftable object was freed")
                 }
             }
-            None => None,
+            None => match &self.prev {
+                // look for the key in previous xref section
+                Some(xref) => xref.get(key),
+                None => None
+            },
         }
     }
 
@@ -231,8 +246,8 @@ impl XRefTable {
             Some(offset) => {
                 let mut pattern = format!("{} {} obj", key.0, key.1).as_bytes().to_owned();
                 // xref address is correct
-                if bytes[*offset..].starts_with(&pattern) {
-                    Some(*offset)
+                if bytes[offset..].starts_with(&pattern) {
+                    Some(offset)
                 // xref table adress is broken
                 } else {
                     // add a new line at the beginning of the pattern to avoid matching 11 0 obj with 1 0 obj
