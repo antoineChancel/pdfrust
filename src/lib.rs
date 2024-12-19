@@ -53,6 +53,7 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
 }
 
 pub struct Pdf {
+    file: Vec<u8>,
     xref: xref::XRef,
 }
 
@@ -65,22 +66,27 @@ impl From<Vec<u8>> for Pdf {
             panic!("PDF file is corrupted; not consistent trailing charaters");
         }
         let startxref = xref::startxref(&value);
-
-        Pdf {
-            xref: XRef::new(value.as_slice(), startxref),
-        }
+        let xref = XRef::new(file, startxref);
+        Pdf { file: value, xref }
     }
 }
 
 impl Pdf {
     pub fn extract(&self, e: Extract) -> String {
-        String::new()
+        let xref = Rc::new(self.xref.clone());
+        let catalog_offset = xref.get_catalog_offset().unwrap();
+        let catalog = Pdf::read_catalog(&self.file, catalog_offset, xref);
+        catalog.extract(e)
     }
 
-    pub fn read_catalog(file_stream: &[u8], curr_idx: usize, xref: Rc<xref::XRef>) -> body::Catalog {
+    pub fn read_catalog(
+        file_stream: &[u8],
+        curr_idx: usize,
+        xref: Rc<xref::XRef>,
+    ) -> body::Catalog {
         body::Catalog::new(file_stream, curr_idx, xref)
     }
-    
+
     pub fn read_info(file_stream: &[u8], curr_idx: usize, xref: Rc<xref::XRef>) -> info::Info {
         info::Info::new(file_stream, curr_idx, xref)
     }

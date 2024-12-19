@@ -1,6 +1,6 @@
 // PDF basic objects
 pub use crate::tokenizer::{Lemmatizer, Token};
-use std::{collections::HashMap, iter::Peekable, rc::Rc};
+use std::{collections::HashMap, rc::Rc};
 
 use crate::{algebra::Number, tokenizer::Tokenizer, xref::XRef};
 

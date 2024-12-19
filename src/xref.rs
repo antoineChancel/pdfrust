@@ -8,7 +8,7 @@ use crate::{
 use super::object;
 use std::collections::HashMap;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum XRef {
     XRefTable(XRefTable),
     XRefStream(XRefStream),
@@ -19,6 +19,13 @@ impl XRef {
         match self {
             XRef::XRefStream(xref) => xref.get(key),
             XRef::XRefTable(xref) => xref.get_and_fix(key, bytes),
+        }
+    }
+
+    pub fn get_catalog_offset(&self) -> Option<usize> {
+        match self {
+            XRef::XRefStream(stream) => stream.get_catalog_offset(),
+            XRef::XRefTable(table) => table.get_catalog_offset(),
         }
     }
 
@@ -39,7 +46,7 @@ impl XRef {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct XRefTable {
     // Trailer - Object number
     size: Number,
@@ -146,6 +153,7 @@ impl Default for XRefTable {
 }
 
 impl XRefTable {
+    
     fn read_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
         // either the next obj num if free or byte offset if in use
         let number = match tokenizer.next() {
@@ -199,6 +207,11 @@ impl XRefTable {
             }
         }
         table
+    }
+
+    pub fn get_catalog_offset(&self) -> Option<usize> {
+        let (offset, _in_use) = self.table.get(&self.root.unwrap()).unwrap();
+        Some(*offset)
     }
 
     pub fn get(&self, key: &object::IndirectObject) -> Option<&usize> {
@@ -280,7 +293,7 @@ pub fn startxref(pdf_bytes: &[u8]) -> usize {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct XRefStream {
     size: usize,              // trailer size entry (object number used in this XRef)
     index: (usize, usize),    // subsection object number ranges
@@ -298,6 +311,10 @@ impl XRefStream {
             res = res * 256 + *b as usize
         }
         res
+    }
+
+    pub fn get_catalog_offset(&self) -> Option<usize> {
+        Some(0)
     }
 
     pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
