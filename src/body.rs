@@ -66,7 +66,7 @@ impl From<Dictionary<'_>> for StreamDictionary {
                 Object::Numeric(n) => n.clone(),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref) {
+                        Some(address) => match Object::new(bytes, address, xref.clone()) {
                             Object::Numeric(n) => n,
                             _ => panic!("Length should be a numeric"),
                         },
@@ -90,7 +90,7 @@ type StreamContent = Vec<u8>;
 pub struct Stream(StreamDictionary, StreamContent);
 
 impl Stream {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
         let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
             Object::Stream(StreamObject { header, bytes }) => {
                 (StreamDictionary::from(header), bytes)
@@ -122,11 +122,13 @@ pub enum PageTreeKids {
 }
 
 impl PageTreeKids {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
+        match Object::new(bytes, curr_idx, xref.clone()) {
             Object::Dictionary(dict) => match dict.get("Type") {
                 Some(Object::Name(name)) => match name.as_str() {
-                    "Pages" => PageTreeKids::PageTreeNode(PageTreeNode::new(bytes, curr_idx, xref)),
+                    "Pages" => {
+                        PageTreeKids::PageTreeNode(PageTreeNode::new(bytes, curr_idx, xref.clone()))
+                    }
                     "Page" => PageTreeKids::Page(Page::new(bytes, curr_idx, xref)),
                     _ => panic!("Unexpected dictionnary type"),
                 },
@@ -248,7 +250,7 @@ impl From<Dictionary<'_>> for Font {
             widths: match value.get("Widths") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref) {
+                        Some(address) => match Object::new(bytes, address, xref.clone()) {
                             Object::Array(a) => Some(a.iter().map(|o| match o {
                                 Object::Numeric(n) => n.clone(),
                                 o => panic!("Widths should be an array containing only numbers, found {o:?}")
@@ -274,7 +276,7 @@ impl From<Dictionary<'_>> for Font {
             to_unicode: match value.get("ToUnicode") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref) {
+                        Some(address) => match Object::new(bytes, address, xref.clone()) {
                             Object::Stream(stream) => Some(ToUnicodeCMap::from(
                                 String::from_utf8_lossy(&Stream::from(stream).get_data())
                                     .to_string(),
@@ -319,7 +321,7 @@ impl From<Dictionary<'_>> for FontMap {
                 .map(|(key, value)| match value {
                     Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
                         Some(address) => {
-                            match Object::new(bytes, address, xref) {
+                            match Object::new(bytes, address, xref.clone()) {
                             Object::Dictionary(t) => (key.clone(), Font::from(t)),
                             o => panic!("Font object is not a dictionary, found {o:?}"),
                         }},
@@ -338,7 +340,7 @@ pub struct Resources {
 }
 
 impl Resources {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -352,7 +354,7 @@ impl From<Dictionary<'_>> for Resources {
             font: match value.get("Font") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     xref.get_and_fix(&(*obj, *gen), bytes).map(|address| {
-                        FontMap::from(match Object::new(bytes, address, xref) {
+                        FontMap::from(match Object::new(bytes, address, xref.clone()) {
                             Object::Dictionary(t) => t,
                             _ => panic!("Font should be a dictionary"),
                         })
@@ -379,7 +381,7 @@ pub struct PageTreeNode {
 }
 
 impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Rc<Self> {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Rc<Self> {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => {
                 let page_tree_node = Rc::new(Self::from(dict));
@@ -427,7 +429,7 @@ impl From<Dictionary<'_>> for PageTreeNode {
                     .map(|kid| match kid {
                         Object::Ref((obj, gen), xref, bytes) => {
                             match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                Some(address) => PageTreeKids::new(bytes, address, xref),
+                                Some(address) => PageTreeKids::new(bytes, address, xref.clone()),
                                 None => panic!("Kid not found in xref table"),
                             }
                         }
@@ -458,7 +460,7 @@ impl From<Dictionary<'_>> for PageTreeNode {
             resources: match value.get("Resources") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Resources::new(bytes, address, xref)),
+                        Some(address) => Some(Resources::new(bytes, address, xref.clone())),
                         None => panic!("Kid not found in xref table"),
                     }
                 }
@@ -480,7 +482,7 @@ pub struct Page {
 }
 
 impl Page {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
@@ -546,7 +548,7 @@ impl From<Dictionary<'_>> for Page {
                 Object::Dictionary(t) => Some(Resources::from(t.clone())),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Resources::new(bytes, address, xref)),
+                        Some(address) => Some(Resources::new(bytes, address, xref.clone())),
                         None => panic!("Resource dictionnary address not found in xref keys"),
                     }
                 }
@@ -565,7 +567,7 @@ impl From<Dictionary<'_>> for Page {
             contents: match value.get("Contents") {
                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Stream::new(bytes, address, xref)),
+                        Some(address) => Some(Stream::new(bytes, address, xref.clone())),
                         None => panic!("Resource dictionnary address not found in xref keys"),
                     }
                 }
@@ -586,7 +588,7 @@ pub struct Catalog {
 }
 
 impl Catalog {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: &XRef) -> Self {
+    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
         match Object::new(bytes, curr_idx, xref) {
             Object::Dictionary(dict) => Self::from(dict),
             o => panic!("Catalog should be a dictionary, found {o:?}"),
@@ -607,7 +609,7 @@ impl From<Dictionary<'_>> for Catalog {
             pages: match value.get("Pages").unwrap() {
                 Object::Ref((obj, gen), xref, bytes) => xref
                     .get_and_fix(&(*obj, *gen), bytes)
-                    .map(|address| PageTreeNode::new(bytes, address, xref)),
+                    .map(|address| PageTreeNode::new(bytes, address, xref.clone())),
                 _ => panic!("Pages should be an indirect object"),
             },
         }
@@ -623,7 +625,7 @@ mod tests {
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, &XRef::XRefTable(XRefTable::new()));
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, Rc::new(XRef::XRefTable(XRefTable::default())));
         assert!(catalog.pages.is_none())
     }
 }

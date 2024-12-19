@@ -1,4 +1,6 @@
-use std::fmt::Display;
+use std::{fmt::Display, rc::Rc};
+
+use xref::XRef;
 
 pub mod algebra;
 pub mod body;
@@ -8,7 +10,6 @@ pub mod filters;
 pub mod info;
 pub mod object;
 pub mod tokenizer;
-pub mod trailer;
 pub mod xref;
 
 #[derive(Debug, Clone)]
@@ -52,8 +53,7 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
 }
 
 pub struct Pdf {
-    _xref: xref::XRef,
-    trailer: trailer::Trailer,
+    xref: xref::XRef,
 }
 
 impl From<Vec<u8>> for Pdf {
@@ -64,44 +64,24 @@ impl From<Vec<u8>> for Pdf {
         if &file[file.len() - 5..] != b"%%EOF" {
             panic!("PDF file is corrupted; not consistent trailing charaters");
         }
-        let (xref, startxref) = xref::xref_table(&value);
-        let trailer = trailer(&value, startxref, &xref);
-        Pdf { _xref: xref, trailer }
+        let startxref = xref::startxref(&value);
+
+        Pdf {
+            xref: XRef::new(value.as_slice(), startxref),
+        }
     }
 }
 
 impl Pdf {
     pub fn extract(&self, e: Extract) -> String {
-        self.trailer.extract(e)
+        String::new()
     }
-}
 
-// Parse PDF trailer
-// Implementation note 13 :  Acrobat viewers require only that the header
-// appear somewhere within the first 1024 bytes of the file.
-pub fn trailer<'a>(
-    file_stream: &'a [u8],
-    startxref: usize,
-    xref: &'a xref::XRef,
-) -> trailer::Trailer {
-    match xref {
-        xref::XRef::XRefTable(_) => {
-            // locate trailer address
-            let start_trailer = match file_stream.windows(7).position(|w| w == b"trailer") {
-                Some(i) => i,
-                None => panic!("Missing trailer token in the entire PDF"),
-            };
-            // slice bytes just after trailer token
-            trailer::Trailer::new(file_stream, start_trailer + 8, xref)
-        }
-        xref::XRef::XRefStream(_) => trailer::Trailer::new(file_stream, startxref, xref),
+    pub fn read_catalog(file_stream: &[u8], curr_idx: usize, xref: Rc<xref::XRef>) -> body::Catalog {
+        body::Catalog::new(file_stream, curr_idx, xref)
     }
-}
-
-pub fn catalog(file_stream: &[u8], curr_idx: usize, xref: &xref::XRef) -> body::Catalog {
-    body::Catalog::new(file_stream, curr_idx, xref)
-}
-
-pub fn info(file_stream: &[u8], curr_idx: usize, xref: &xref::XRef) -> info::Info {
-    info::Info::new(file_stream, curr_idx, xref)
+    
+    pub fn read_info(file_stream: &[u8], curr_idx: usize, xref: Rc<xref::XRef>) -> info::Info {
+        info::Info::new(file_stream, curr_idx, xref)
+    }
 }

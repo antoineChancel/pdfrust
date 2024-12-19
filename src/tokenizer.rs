@@ -1,9 +1,9 @@
 use core::panic;
-use std::{char, iter::Peekable, slice::Iter};
+use std::{char, iter::Peekable, rc::Rc, slice::Iter};
 
 use crate::{
     algebra::Number,
-    xref::XRef,
+    xref::{XRef, XRefTable},
 };
 
 // Tokenizer for PDF objects
@@ -39,7 +39,7 @@ pub enum Token<'a> {
     HexString(Vec<u8>),
     Name(String),
     Comment(Vec<u8>),
-    IndirectRef((i32, i32), &'a XRef, &'a [u8]),
+    IndirectRef((i32, i32), Rc<XRef>, &'a [u8]),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -91,11 +91,20 @@ impl From<&u8> for CharacterSet {
 
 pub struct Lemmatizer<'a> {
     tokenizer: Tokenizer<'a>,
-    xref: &'a XRef,
+    xref: Rc<XRef>, // xref is owned by Lemmatizer and Reference Objects
+}
+
+impl<'a> From<Tokenizer<'a>> for Lemmatizer<'a> {
+    fn from(tokenizer: Tokenizer<'a>) -> Self {
+        Lemmatizer {
+            tokenizer,
+            xref: Rc::new(XRef::XRefTable(XRefTable::default())),
+        }
+    }
 }
 
 impl<'a> Lemmatizer<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XRef) -> Lemmatizer<'a> {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: Rc<XRef>) -> Lemmatizer<'a> {
         Lemmatizer {
             tokenizer: Tokenizer::new(bytes, curr_idx),
             xref,
@@ -123,7 +132,7 @@ impl<'a> Iterator for Lemmatizer<'a> {
                                 self.tokenizer.next();
                                 return Some(Token::IndirectRef(
                                     (a, b),
-                                    self.xref,
+                                    self.xref.clone(),
                                     self.tokenizer.bytes,
                                 ));
                             }
@@ -493,8 +502,8 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_1() {
-        let xref = XRef::XRefTable(XRefTable::new());
-        let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, &xref);
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
+        let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, xref);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
@@ -519,9 +528,9 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_0() {
-        let xref = XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n";
-        let mut pdf = Lemmatizer::new(bytes, 0, &xref);
+        let mut pdf = Lemmatizer::new(bytes, 0, xref.clone());
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
@@ -539,7 +548,7 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(
             pdf.next(),
-            Some(Token::IndirectRef((3, 0), &xref, &bytes.as_slice()))
+            Some(Token::IndirectRef((3, 0), xref.clone(), &bytes.as_slice()))
         );
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
