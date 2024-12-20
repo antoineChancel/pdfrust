@@ -1,11 +1,8 @@
 // PDF basic objects
 pub use crate::tokenizer::{Lemmatizer, Token};
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
-use crate::{
-    algebra::Number,
-    xref::XRef,
-};
+use crate::{algebra::Number, tokenizer::Tokenizer, xref::XRef};
 
 pub type Name = String;
 pub type IndirectObject = (i32, i32);
@@ -33,7 +30,7 @@ pub enum Object<'a> {
     String(String),
     HexString(Vec<u8>),
     Numeric(Number),
-    Ref(IndirectObject, &'a XRef, &'a [u8]),
+    Ref(IndirectObject, Rc<XRef>, &'a [u8]),
 }
 
 impl<'a> TryFrom<&mut Lemmatizer<'a>> for Array<'a> {
@@ -118,7 +115,8 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
                                 Some(Object::Ref((obj, gen), xref, bytes)) => {
                                     match xref.get_and_fix(&(*obj, *gen), bytes) {
                                         Some(address) => {
-                                            let mut t = Lemmatizer::new(bytes, address, xref);
+                                            let mut t =
+                                                Lemmatizer::new(bytes, address, xref.clone());
                                             matches!(t.next(), Some(Token::Numeric(_)));
                                             match t.next() {
                                                 Some(Token::Numeric(Number::Integer(n))) => n,
@@ -158,8 +156,14 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
 }
 
 impl<'a> Object<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: &'a XRef) -> Self {
+    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
         Self::try_from(&mut Lemmatizer::new(bytes, curr_idx, xref)).unwrap()
+    }
+}
+
+impl<'a> From<Tokenizer<'a>> for Object<'a> {
+    fn from(value: Tokenizer<'a>) -> Self {
+        Self::try_from(&mut Lemmatizer::from(value)).unwrap()
     }
 }
 
@@ -196,7 +200,7 @@ mod tests {
 
     #[test]
     fn test_dictionnary_0() {
-        let xref = &XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let mut t = Lemmatizer::new(
             b"/Title (sample) /Author (Philip Hutchison) /Creator (Pages) >>",
             0,
@@ -219,9 +223,9 @@ mod tests {
 
     #[test]
     fn test_object_trailer() {
-        let xref = &XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"<</Size 14/Root 12 0 R\n/Info 13 0 R\n/ID [ <6285DCD147BBD7C07D63844C37B01D23>\n<6285DCD147BBD7C07D63844C37B01D23> ]\n/DocChecksum /700D49F24CC4E7F9CC731421E1DAB422\n>>\nstartxref\n12125\n";
-        let mut t = Lemmatizer::new(bytes, 0, xref);
+        let mut t = Lemmatizer::new(bytes, 0, xref.clone());
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -230,7 +234,7 @@ mod tests {
                 );
                 assert_eq!(
                     d.get(&String::from("Root")),
-                    Some(&Object::Ref((12, 0), xref, bytes))
+                    Some(&Object::Ref((12, 0), xref.clone(), bytes))
                 );
                 assert_eq!(
                     d.get(&String::from("Info")),
@@ -269,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_object_catalog() {
-        let xref = &XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let mut t = Lemmatizer::new(
             b"1 0 obj  % entry point\n<<\n  /Type /Catalog\n\n>>\nendobj",
             0,
@@ -289,9 +293,9 @@ mod tests {
 
     #[test]
     fn test_object_pages() {
-        let xref = &&XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj";
-        let mut t = Lemmatizer::new(bytes, 0, &xref);
+        let mut t = Lemmatizer::new(bytes, 0, xref.clone());
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -323,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_object_stream() {
-        let xref = &XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"4 0 obj\n<<\n  /Length 10\n>>\nstream\n1234567890\nendstream\nendobj";
         let mut t = Lemmatizer::new(bytes, 0, xref);
         match Object::try_from(&mut t) {
@@ -344,9 +348,9 @@ mod tests {
 
     #[test]
     fn test_object_page() {
-        let xref = &&XRef::XRefTable(XRefTable::new());
+        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"3 0 obj\n<<\n  /Type /Page\n  /Parent 2 0 R\n  /Resources <<\n    /Font <<\n      /F1 4 0 R \n    >>\n  >>\n  /Contents 5 0 R\n>>\nendobj";
-        let mut t = Lemmatizer::new(bytes, 0, xref);
+        let mut t = Lemmatizer::new(bytes, 0, xref.clone());
         match Object::try_from(&mut t) {
             Ok(Object::Dictionary(d)) => {
                 assert_eq!(
@@ -355,11 +359,11 @@ mod tests {
                 );
                 assert_eq!(
                     d.get(&String::from("Parent")),
-                    Some(&Object::Ref((2, 0), xref, bytes))
+                    Some(&Object::Ref((2, 0), xref.clone(), bytes))
                 );
                 assert_eq!(
                     d.get(&String::from("Contents")),
-                    Some(&Object::Ref((5, 0), xref, bytes))
+                    Some(&Object::Ref((5, 0), xref.clone(), bytes))
                 );
                 match d.get(&String::from("Resources")) {
                     Some(Object::Dictionary(d)) => match d.get(&String::from("Font")) {
