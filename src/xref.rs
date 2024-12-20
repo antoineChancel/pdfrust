@@ -222,7 +222,6 @@ impl XRefTable {
     }
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
-        println!("{:?}", self.root.unwrap());
         self.get(&self.root.unwrap())
     }
 
