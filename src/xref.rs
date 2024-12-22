@@ -91,8 +91,18 @@ impl From<Tokenizer<'_>> for XRefTable {
             None => panic!("End of file unexpected"),
         };
 
-        // Read table subsections
-        let table = XRefTable::read_table_subsection(&mut tokenizer);
+        // Read all table subsections
+        let mut table = HashMap::new();
+        loop {
+            // Read one subsection
+            XRefTable::read_table_subsection(&mut tokenizer, &mut table);
+            match tokenizer.clone().peekable().peek() {
+                Some(Token::Numeric(Number::Integer(_))) => (),
+                Some(Token::String(_)) => break,
+                Some(_) => panic!(),
+                None => break,
+            }
+        }
 
         // Check that xref table trailer is starting with "trailer" bytes
         match tokenizer.next() {
@@ -195,9 +205,8 @@ impl XRefTable {
 
     fn read_table_subsection(
         tok: &mut Tokenizer,
-    ) -> HashMap<object::IndirectObject, (usize, bool)> {
-        let mut table = HashMap::new();
-
+        table: &mut HashMap<object::IndirectObject, (usize, bool)>,
+    ) {
         let start = match tok.next() {
             Some(Token::Numeric(Number::Integer(n))) => n,
             Some(t) => panic!("Table subsection header start should be an integer, found {t:?}"),
@@ -218,7 +227,6 @@ impl XRefTable {
                 None => panic!("Unable to read xref entry"),
             }
         }
-        table
     }
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
