@@ -577,8 +577,12 @@ impl From<Dictionary<'_>> for Page {
                         match references.first() {
                             Some(Object::Ref((obj, gen), xref, bytes)) => {
                                 match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                    Some(address) => Some(Stream::new(bytes, address, xref.clone())),
-                                    None => panic!("Resource dictionnary address not found in xref keys"),
+                                    Some(address) => {
+                                        Some(Stream::new(bytes, address, xref.clone()))
+                                    }
+                                    None => panic!(
+                                        "Resource dictionnary address not found in xref keys"
+                                    ),
                                 }
                             }
                             _ => panic!("Unreadable array of content streams"),
