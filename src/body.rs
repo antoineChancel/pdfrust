@@ -572,7 +572,26 @@ impl From<Dictionary<'_>> for Page {
                     }
                 }
                 None => None,
-                _ => panic!("Contents should be an indirect object"),
+                Some(Object::Array(references)) => {
+                    if references.len() == 1 {
+                        match references.first() {
+                            Some(Object::Ref((obj, gen), xref, bytes)) => {
+                                match xref.get_and_fix(&(*obj, *gen), bytes) {
+                                    Some(address) => {
+                                        Some(Stream::new(bytes, address, xref.clone()))
+                                    }
+                                    None => panic!(
+                                        "Resource dictionnary address not found in xref keys"
+                                    ),
+                                }
+                            }
+                            _ => panic!("Unreadable array of content streams"),
+                        }
+                    } else {
+                        panic!("Page content with array of streams is not supported")
+                    }
+                }
+                Some(o) => panic!("Contents should be an indirect object, found {:?}", o),
             },
         }
     }
