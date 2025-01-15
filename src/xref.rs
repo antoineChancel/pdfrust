@@ -140,7 +140,8 @@ impl From<Tokenizer<'_>> for XRefTable {
             // Catalogue dictionnary or a reference to the root object of the page tree
             root: match trailer.get("Root") {
                 Some(Object::Ref(r, _, _)) => Some(*r),
-                _ => panic!("Root should be a Catalog object"),
+                None => None,
+                Some(o) => panic!("Root should be an indirect reference to a Catalog object, found {:?}", o),
             },
             // Encryption dictionnary
             encrypt: match trailer.get("Encrypt") {
