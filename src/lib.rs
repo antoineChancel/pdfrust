@@ -18,6 +18,7 @@ pub enum Extract {
     Chars,
     Font,
     RawContent,
+    Xref,
 }
 
 #[derive(Debug)]
@@ -72,11 +73,21 @@ impl From<Vec<u8>> for Pdf {
 }
 
 impl Pdf {
+    pub fn extract_xref(&self) -> String {
+        println!("{}", self.xref);
+        String::new()
+    }
+
     pub fn extract(&self, e: Extract) -> String {
-        let xref = Rc::new(self.xref.clone());
-        let catalog_offset = xref.get_catalog_offset().unwrap();
-        let catalog = Pdf::read_catalog(&self.file, catalog_offset, xref);
-        catalog.extract(e)
+        match e {
+            Extract::Xref => self.extract_xref(),
+            _ => {
+                let xref = Rc::new(self.xref.clone());
+                let catalog_offset = xref.get_catalog_offset().unwrap();
+                let catalog = Pdf::read_catalog(&self.file, catalog_offset, xref);
+                catalog.extract(e)
+            }
+        }
     }
 
     pub fn read_catalog(

@@ -11,7 +11,7 @@ use crate::{
     cmap::ToUnicodeCMap,
     content,
     filters::flate_decode,
-    object::{Array, Dictionary, Name, Object},
+    object::{Array, Dictionary, Lemmatizer, Name, Object, Token},
     xref::XRef,
     Extract,
 };
@@ -54,15 +54,25 @@ impl From<Name> for Filter {
 }
 
 #[derive(Debug, PartialEq)]
-struct StreamDictionary {
+struct ObjectStreams {
     length: Number,
     filter: Option<Filter>,
+    n: usize,     // number of compressed objects in the stream
+    first: usize, // byte offset of first compressed object
+    data: Vec<u8>,
+    table: HashMap<usize, usize>, // object_number -> byte_offset
 }
 
-impl From<Dictionary<'_>> for StreamDictionary {
-    fn from(value: Dictionary) -> Self {
-        StreamDictionary {
-            length: match value.get("Length").unwrap() {
+impl From<StreamObject<'_>> for ObjectStreams {
+    fn from(value: StreamObject<'_>) -> Self {
+        let filter = match value.header.get("Filter") {
+            Some(Object::Name(name)) => Some(Filter::from(name.clone())),
+            None => None,
+            _ => panic!("Filter should be a name"),
+        };
+        let data = Self::deflate(&value.bytes, &filter);
+        ObjectStreams {
+            length: match value.header.get("Length").unwrap() {
                 Object::Numeric(n) => n.clone(),
                 Object::Ref((obj, gen), xref, bytes) => {
                     match xref.get_and_fix(&(*obj, *gen), bytes) {
@@ -75,43 +85,110 @@ impl From<Dictionary<'_>> for StreamDictionary {
                 }
                 _ => panic!("Length should be a numeric"),
             },
-            filter: match value.get("Filter") {
-                Some(Object::Name(name)) => Some(Filter::from(name.clone())),
-                None => None,
-                _ => panic!("Filter should be a name"),
+            filter,
+            n: match value.header.get("N") {
+                Some(Object::Numeric(Number::Integer(n))) => *n as usize,
+                Some(_) => panic!("N should be an integer"),
+                None => panic!("N is mandatory in an object streams"),
             },
+            first: match value.header.get("First") {
+                Some(Object::Numeric(Number::Integer(first))) => *first as usize,
+                Some(_) => panic!("First should be an integer"),
+                None => panic!("First is mandatory in an object streams"),
+            },
+            data,
+            table: HashMap::new(),
         }
     }
 }
 
-type StreamContent = Vec<u8>;
+impl ObjectStreams {
+    fn create_table(&mut self, xref: Rc<XRef>) {
+        let mut parser = Lemmatizer::new(self.data.as_slice(), 0, xref);
+        self.table.clear();
+        loop {
+            let obj_num = match parser.next() {
+                Some(Token::Numeric(Number::Integer(n))) => n as usize,
+                Some(_) => break,
+                None => panic!("Unable to read object streams object number"),
+            };
+            let offset = match parser.next() {
+                Some(Token::Numeric(Number::Integer(offset))) => offset as usize,
+                Some(_) => break,
+                None => panic!("Unable to read object streams offset"),
+            };
+            self.table.insert(obj_num, offset);
+        }
+    }
+
+    fn get(&self, obj_num: usize, xref: Rc<XRef>) -> Object {
+        Object::new(
+            &self.data,
+            self.table.get(&obj_num).unwrap() + self.first,
+            xref,
+        )
+    }
+}
+
+impl Deflate for ObjectStreams {}
 
 #[derive(Debug, PartialEq)]
-pub struct Stream(StreamDictionary, StreamContent);
+struct Stream {
+    length: Number,
+    filter: Option<Filter>,
+    data: Vec<u8>,
+}
 
 impl Stream {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        let (dict, stream) = match Object::new(bytes, curr_idx, xref) {
-            Object::Stream(StreamObject { header, bytes }) => {
-                (StreamDictionary::from(header), bytes)
-            }
+        match Object::new(bytes, curr_idx, xref) {
+            Object::Stream(stream_object) => Stream::from(stream_object),
             _ => panic!("Stream should be a dictionary"),
-        };
-        Stream(dict, stream)
+        }
     }
 
     pub fn get_data(&self) -> Vec<u8> {
-        match &self.0.filter {
-            Some(Filter::FlateDecode) => flate_decode(&self.1),
+        self.data.clone()
+    }
+}
+
+trait Deflate {
+    fn deflate(bytes: &[u8], filter: &Option<Filter>) -> Vec<u8> {
+        match filter {
+            Some(Filter::FlateDecode) => flate_decode(&bytes),
             // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
-            None => self.1.clone(),
+            None => bytes.to_vec(), // if no filter in header, keep data as is
         }
     }
 }
 
+impl Deflate for Stream {}
+
 impl From<StreamObject<'_>> for Stream {
     fn from(object: StreamObject<'_>) -> Self {
-        Stream(StreamDictionary::from(object.header), object.bytes)
+        let filter = match object.header.get("Filter") {
+            Some(Object::Name(name)) => Some(Filter::from(name.clone())),
+            None => None,
+            _ => panic!("Filter should be a name"),
+        };
+        let data = Self::deflate(&object.bytes, &filter);
+        Stream {
+            length: match object.header.get("Length").unwrap() {
+                Object::Numeric(n) => n.clone(),
+                Object::Ref((obj, gen), xref, bytes) => {
+                    match xref.get_and_fix(&(*obj, *gen), bytes) {
+                        Some(address) => match Object::new(bytes, address, xref.clone()) {
+                            Object::Numeric(n) => n,
+                            _ => panic!("Length should be a numeric"),
+                        },
+                        None => panic!("Length should be an indirect object"),
+                    }
+                }
+                _ => panic!("Length should be a numeric"),
+            },
+            filter,
+            data,
+        }
     }
 }
 
@@ -509,6 +586,7 @@ impl Page {
             Extract::Chars => self.extract_text(true),
             Extract::RawContent => self.extract_stream(),
             Extract::Font => self.extract_font(),
+            Extract::Xref => String::new(),
         }
     }
 
@@ -608,8 +686,14 @@ pub struct Catalog {
 
 impl Catalog {
     pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+        match Object::new(bytes, curr_idx, xref.clone()) {
             Object::Dictionary(dict) => Self::from(dict),
+            Object::Stream(stream) => {
+                let mut stream = ObjectStreams::from(stream);
+                stream.create_table(xref.clone());
+                let obj = stream.get(2, xref);
+                panic!("{obj:?}");
+            }
             o => panic!("Catalog should be a dictionary, found {o:?}"),
         }
     }
@@ -638,9 +722,8 @@ impl From<Dictionary<'_>> for Catalog {
 #[cfg(test)]
 mod tests {
 
-    use crate::xref::XRefTable;
-
     use super::*;
+    use crate::xref::XRefTable;
 
     #[test]
     fn test_catalog() {

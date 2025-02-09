@@ -6,12 +6,21 @@ use crate::{
 };
 
 use super::object;
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::Display};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum XRef {
     XRefTable(XRefTable),
     XRefStream(XRefStream),
+}
+
+impl Display for XRef {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            XRef::XRefTable(table) => table.fmt(f),
+            XRef::XRefStream(stream) => stream.fmt(f),
+        }
+    }
 }
 
 impl XRef {
@@ -73,6 +82,13 @@ pub struct XRefTable {
     // id: Option<Array<'a>>,
     // XRef table data
     table: HashMap<object::IndirectObject, (usize, bool)>,
+}
+
+impl Display for XRefTable {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Cross reference table entries (classic)\n")?;
+        write!(f, "{:#?}", self.table)
+    }
 }
 
 impl From<Tokenizer<'_>> for XRefTable {
@@ -141,7 +157,10 @@ impl From<Tokenizer<'_>> for XRefTable {
             root: match trailer.get("Root") {
                 Some(Object::Ref(r, _, _)) => Some(*r),
                 None => None,
-                Some(o) => panic!("Root should be an indirect reference to a Catalog object, found {:?}", o),
+                Some(o) => panic!(
+                    "Root should be an indirect reference to a Catalog object, found {:?}",
+                    o
+                ),
             },
             // Encryption dictionnary
             encrypt: match trailer.get("Encrypt") {
@@ -322,8 +341,25 @@ pub struct XRefStream {
     size: usize,              // trailer size entry (object number used in this XRef)
     index: (usize, usize),    // subsection object number ranges
     prev: Option<i32>,        // byte offset of previous xref
+    root: Option<(i32, i32)>, // catalogue dictionnary or a reference to the root object of the page tree
+    info: Option<(i32, i32)>, // information dictionary containing metadata
     w: (usize, usize, usize), // xref stream entry sizes in bytes
     stream: Vec<u8>,          // uncompressed xref entries
+}
+
+impl Display for XRefStream {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut entries = String::from("Cross reference table entries (stream)\n");
+        for object_idx in 0..self.size {
+            let entry_size = self.w.0 + self.w.1 + self.w.2;
+            let entry = &self.stream[object_idx * entry_size..object_idx * entry_size + entry_size];
+            let entry_type = XRefStream::num(&entry[..self.w.0]);
+            let entry_mid = XRefStream::num(&entry[self.w.0..self.w.0 + self.w.1]);
+            let entry_last = XRefStream::num(&entry[self.w.1..]);
+            entries += &format!("[{}, {}, {}]\n", entry_type, entry_mid, entry_last).to_string();
+        }
+        write!(f, "{entries}")
+    }
 }
 
 impl XRefStream {
@@ -338,7 +374,10 @@ impl XRefStream {
     }
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
-        Some(0)
+        match self.root {
+            Some(r) => self.get(&r),
+            None => None,
+        }
     }
 
     pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
@@ -347,7 +386,9 @@ impl XRefStream {
         if object_idx > self.index.1 {
             panic!("Object number {:?} is out of index", key.0)
         }
+        // number of bytes of an entry
         let entry_size = self.w.0 + self.w.1 + self.w.2;
+        // xref entry
         let entry = &self.stream[object_idx * entry_size..object_idx * entry_size + entry_size];
         println!("{entry:?}");
         // cross reference entries in page 109
@@ -355,8 +396,8 @@ impl XRefStream {
         let entry_mid = XRefStream::num(&entry[self.w.0..self.w.0 + self.w.1]);
         match entry_type {
             1 => Some(entry_mid),
-            0 => None,                             // not implemented yet - freed objects
-            2 => self.get(&(entry_mid as i32, 0)), // not implemented yet - compressed object
+            0 => None, // not implemented yet - freed objects (linked list)
+            2 => self.get(&(entry_mid as i32, 0)), // generation number of object stream is implicitly 0
             _ => panic!("Cross reference stream data type can only be 0, 1 or 2"),
         }
     }
@@ -408,6 +449,16 @@ impl From<object::Stream<'_>> for XRefStream {
             prev: match value.header.get("Prev") {
                 Some(Object::Numeric(Number::Integer(n))) => Some(*n),
                 Some(o) => panic!("Cross reference stream dictionnary contains a Prev value with wrong type, found {o:?}"),
+                None => None
+            },
+            root: match value.header.get("Root") {
+                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(o) => panic!("Cross reference stream dictionnary contains a Root value with wrong type, found {o:?}"),
+                None => None
+            },
+            info: match value.header.get("Info") {
+                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(o) => panic!("Cross reference stream dictionnary contains a Info value with wrong type, found {o:?}"),
                 None => None
             },
             w: match value.header.get("W") {

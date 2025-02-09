@@ -105,6 +105,7 @@ impl<'a> TryFrom<&mut Lemmatizer<'a>> for Object<'a> {
                     let dict = Dictionary::try_from(&mut *tokenizer).unwrap();
                     // check if next token is stream
                     object = match tokenizer.next() {
+                        // object stream
                         Some(Token::StreamBegin) => {
                             let length = match dict.get("Length") {
                                 Some(Object::Numeric(Number::Integer(n))) => *n,
