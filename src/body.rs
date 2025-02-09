@@ -155,7 +155,7 @@ impl Stream {
 trait Deflate {
     fn deflate(bytes: &[u8], filter: &Option<Filter>) -> Vec<u8> {
         match filter {
-            Some(Filter::FlateDecode) => flate_decode(&bytes),
+            Some(Filter::FlateDecode) => flate_decode(bytes),
             // Some(f) => panic!("Filter {f:?} is not supported at the moment"),
             None => bytes.to_vec(), // if no filter in header, keep data as is
         }
