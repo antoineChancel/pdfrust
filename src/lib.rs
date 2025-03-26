@@ -53,52 +53,50 @@ pub fn pdf_version(s: &[u8]) -> PdfVersion {
     }
 }
 
-pub struct Pdf {
-    file: Vec<u8>,
-    xref: xref::XRef,
+pub struct Pdf<'a> {
+    // File bytes
+    file: &'a [u8],
+    // Cross reference table
+    xref: xref::XRef<'a>,
 }
 
-impl From<Vec<u8>> for Pdf {
-    fn from(value: Vec<u8>) -> Self {
+impl<'a> From<&'a Vec<u8>> for Pdf<'a> {
+    fn from(value: &'a Vec<u8>) -> Self {
         // remove leading and trailing whitespaces
         let file = value.trim_ascii();
         // check file bytes ends with %%EOF
         if &file[file.len() - 5..] != b"%%EOF" {
             panic!("PDF file is corrupted; not consistent trailing charaters");
         }
-        let startxref = xref::startxref(&value);
-        let xref = XRef::new(file, startxref);
-        Pdf { file: value, xref }
+        // bytes offset of last xref table
+        let startxref = xref::startxref(&file);
+        // read xref tables
+        let xref = XRef::new(&file, startxref);
+        Pdf { file, xref }
     }
 }
 
-impl Pdf {
-    pub fn extract_xref(&self) -> String {
-        println!("{}", self.xref);
-        String::new()
-    }
-
+impl<'a> Pdf<'a> {
     pub fn extract(&self, e: Extract) -> String {
         match e {
-            Extract::Xref => self.extract_xref(),
+            Extract::Xref => {
+                println!("{}", self.xref);
+                String::new()
+            }
             _ => {
                 let xref = Rc::new(self.xref.clone());
                 let catalog_offset = xref.get_catalog_offset().unwrap();
-                let catalog = Pdf::read_catalog(&self.file, catalog_offset, xref);
+                let catalog = Pdf::read_catalog(&self.file, catalog_offset);
                 catalog.extract(e)
             }
         }
     }
 
-    pub fn read_catalog(
-        file_stream: &[u8],
-        curr_idx: usize,
-        xref: Rc<xref::XRef>,
-    ) -> body::Catalog {
-        body::Catalog::new(file_stream, curr_idx, xref)
+    pub fn read_catalog(file_stream: &[u8], curr_idx: usize) -> body::Catalog {
+        body::Catalog::new(file_stream, curr_idx)
     }
 
-    pub fn read_info(file_stream: &[u8], curr_idx: usize, xref: Rc<xref::XRef>) -> info::Info {
-        info::Info::new(file_stream, curr_idx, xref)
+    pub fn read_info(file_stream: &[u8], curr_idx: usize) -> info::Info {
+        info::Info::new(file_stream, curr_idx)
     }
 }

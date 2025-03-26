@@ -1,5 +1,7 @@
 use std::{fmt::Display, ops};
 
+use crate::object::Object;
+
 #[derive(Debug, PartialEq, Clone)]
 pub enum Number {
     Integer(i32),
@@ -11,6 +13,34 @@ impl From<Number> for f32 {
         match value {
             Number::Integer(i) => i as f32,
             Number::Real(f) => f,
+        }
+    }
+}
+
+impl From<Object> for Number {
+    fn from(value: Object) -> Self {
+        match value {
+            Object::Numeric(n) => n,
+            _ => panic!("Unable to convert"),
+        }
+    }
+}
+
+impl From<&Object> for Number {
+    fn from(value: &Object) -> Self {
+        match value {
+            Object::Numeric(n) => n.clone(),
+            _ => panic!("Unable to convert"),
+        }
+    }
+}
+
+impl From<Object> for Vec<Number> {
+    fn from(value: Object) -> Self {
+        if let Object::Array(a) = value {
+            a.iter().map(|e| Number::from(e)).collect()
+        } else {
+            panic!("Unable to create Number from object")
         }
     }
 }

@@ -1,20 +1,20 @@
 use crate::{
     algebra::Number,
     filters::flate_decode,
-    object::Object,
+    object::{IndirectObject, Lemmatizer, Object},
     tokenizer::{Token, Tokenizer},
 };
 
 use super::object;
 use std::{collections::HashMap, fmt::Display};
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum XRef {
-    XRefTable(XRefTable),
-    XRefStream(XRefStream),
+#[derive(Debug, Clone)]
+pub enum XRef<'a> {
+    XRefTable(XRefTable<'a>),
+    XRefStream(XRefStream<'a>),
 }
 
-impl Display for XRef {
+impl<'a> Display for XRef<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XRef::XRefTable(table) => table.fmt(f),
@@ -23,18 +23,25 @@ impl Display for XRef {
     }
 }
 
-impl XRef {
-    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<usize> {
+impl<'a> XRef<'a> {
+    pub fn get_and_fix_offset(&self, key: &object::IndirectObject) -> Option<usize> {
         match self {
-            XRef::XRefStream(stream) => stream.get(key),
-            XRef::XRefTable(xref) => xref.get_and_fix(key, bytes),
+            XRef::XRefStream(stream) => stream.get_offset(key),
+            XRef::XRefTable(table) => table.get_and_fix_offset(key),
         }
     }
 
-    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
+    pub fn get_and_fix_object(&mut self, key: &object::IndirectObject) -> Object {
         match self {
-            XRef::XRefStream(stream) => stream.get(key),
-            XRef::XRefTable(xref) => xref.get(key),
+            XRef::XRefStream(stream) => stream.get_object(key),
+            XRef::XRefTable(table) => table.get_object(key),
+        }
+    }
+
+    pub fn get_offset(&self, key: &object::IndirectObject) -> Option<usize> {
+        match self {
+            XRef::XRefStream(stream) => stream.get_offset(key),
+            XRef::XRefTable(table) => table.get_offset(key),
         }
     }
 
@@ -45,18 +52,20 @@ impl XRef {
         }
     }
 
-    pub fn new(bytes: &[u8], offset: usize) -> Self {
-        Self::from(Tokenizer::new(bytes, offset))
+    pub fn new(file_bytes: &'a [u8], offset: usize) -> Self {
+        let mut lemmatizer = Lemmatizer::new(&file_bytes);
+        lemmatizer.tokenizer.set(offset);
+        Self::from(lemmatizer)
     }
 }
 
-impl From<Tokenizer<'_>> for XRef {
-    fn from(value: Tokenizer<'_>) -> Self {
+impl<'a> From<Lemmatizer<'a>> for XRef<'a> {
+    fn from(mut value: Lemmatizer<'a>) -> Self {
         match value.clone().peekable().peek() {
             // Cross reference table starts with "xref" token (page 93)
             Some(Token::String(_)) => XRef::XRefTable(XRefTable::from(value)),
             // Cross reference stream object starts with "0 0 obj"
-            Some(Token::Numeric(_)) => match Object::from(value) {
+            Some(Token::Numeric(_)) => match Object::try_from(&mut value).unwrap() {
                 Object::Stream(s) => XRef::XRefStream(XRefStream::from(s)),
                 o => panic!("Xref object cannot be of type {o:?}"),
             },
@@ -66,12 +75,12 @@ impl From<Tokenizer<'_>> for XRef {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct XRefTable {
+#[derive(Debug, Clone)]
+pub struct XRefTable<'a> {
     // Trailer - Object number
     size: Number,
     // Trailer - Byte offset from the beginning of the file to the beginning of the previous cross-reference section
-    prev: Option<Box<XRef>>,
+    prev: Option<Box<XRef<'a>>>,
     // Trailer - Catalogue dictionnary or a reference to the root object of the page tree
     root: Option<(i32, i32)>,
     // Trailer - Encryption dictionnary
@@ -82,19 +91,23 @@ pub struct XRefTable {
     // id: Option<Array<'a>>,
     // XRef table data
     table: HashMap<object::IndirectObject, (usize, bool)>,
+    // Mem objects
+    objects: HashMap<object::IndirectObject, Object>,
+    // File bytes
+    lemmatizer: Lemmatizer<'a>,
 }
 
-impl Display for XRefTable {
+impl<'a> Display for XRefTable<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Cross reference table entries (classic)\n")?;
         write!(f, "{:#?}", self.table)
     }
 }
 
-impl From<Tokenizer<'_>> for XRefTable {
-    fn from(mut tokenizer: Tokenizer<'_>) -> Self {
+impl<'a> From<Lemmatizer<'a>> for XRefTable<'a> {
+    fn from(mut lemmatizer: Lemmatizer<'a>) -> Self {
         // Check that xref table starts with "xref" bytes
-        match tokenizer.next() {
+        match lemmatizer.next() {
             Some(Token::String(s)) => {
                 if s.as_slice() != b"xref" {
                     panic!("Startxref string missing, found string {s:?}")
@@ -111,8 +124,8 @@ impl From<Tokenizer<'_>> for XRefTable {
         let mut table = HashMap::new();
         loop {
             // Read one subsection
-            XRefTable::read_table_subsection(&mut tokenizer, &mut table);
-            match tokenizer.clone().peekable().peek() {
+            XRefTable::read_table_subsection(&mut lemmatizer.tokenizer, &mut table);
+            match lemmatizer.clone().peekable().peek() {
                 Some(Token::Numeric(Number::Integer(_))) => (),
                 Some(Token::String(_)) => break,
                 Some(_) => panic!(),
@@ -121,7 +134,7 @@ impl From<Tokenizer<'_>> for XRefTable {
         }
 
         // Check that xref table trailer is starting with "trailer" bytes
-        match tokenizer.next() {
+        match lemmatizer.next() {
             Some(Token::String(s)) => {
                 if s.as_slice() != b"trailer" {
                     panic!("Trailer string missing, found string {s:?}")
@@ -135,7 +148,7 @@ impl From<Tokenizer<'_>> for XRefTable {
         };
 
         // Read trailer dictionnary
-        let trailer = match Object::from(tokenizer.clone()) {
+        let trailer = match Object::try_from(&mut lemmatizer).unwrap() {
             Object::Dictionary(dict) => dict,
             _ => panic!("Trailer should be a dictionary"),
         };
@@ -147,15 +160,16 @@ impl From<Tokenizer<'_>> for XRefTable {
             },
             // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
             prev: match trailer.get("Prev") {
-                Some(Object::Numeric(Number::Integer(offset))) => Some(Box::new(XRef::from(
-                    Tokenizer::new(tokenizer.bytes, *offset as usize),
-                ))),
+                Some(Object::Numeric(Number::Integer(offset))) => {
+                    lemmatizer.tokenizer.set(*offset as usize);
+                    Some(Box::new(XRef::from(lemmatizer.clone())))
+                }
                 None => None,
                 _ => panic!("Prev should be a numeric"),
             },
             // Catalogue dictionnary or a reference to the root object of the page tree
             root: match trailer.get("Root") {
-                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(Object::Ref(r)) => Some(*r),
                 None => None,
                 Some(o) => panic!(
                     "Root should be an indirect reference to a Catalog object, found {:?}",
@@ -164,24 +178,27 @@ impl From<Tokenizer<'_>> for XRefTable {
             },
             // Encryption dictionnary
             encrypt: match trailer.get("Encrypt") {
-                Some(Object::Ref((obj, gen), _xref, _bytes)) => Some((*obj, *gen)),
+                Some(Object::Ref((obj, gen))) => Some((*obj, *gen)),
                 None => None,
                 _ => panic!("Encrypt should be an indirect object"),
             },
             // Information dictionary containing metadata
             info: match trailer.get("Info") {
-                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(Object::Ref(r)) => Some(*r),
                 None => None,
                 _ => panic!("Info should be an indirect object"),
             },
             // Array of two byte-strings constituting a file identifier
             // id: Option<Array<'a>>,
             table,
+            objects: HashMap::new(),
+            // File tokenizer
+            lemmatizer,
         }
     }
 }
 
-impl Default for XRefTable {
+impl<'a> Default for XRefTable<'a> {
     fn default() -> Self {
         XRefTable {
             size: Number::Integer(0),
@@ -191,11 +208,13 @@ impl Default for XRefTable {
             info: None,
             // id: None,
             table: HashMap::new(),
+            objects: HashMap::new(),
+            lemmatizer: Lemmatizer::new(b""),
         }
     }
 }
 
-impl XRefTable {
+impl<'a> XRefTable<'a> {
     fn read_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
         // either the next obj num if free or byte offset if in use
         let number = match tokenizer.next() {
@@ -250,10 +269,16 @@ impl XRefTable {
     }
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
-        self.get(&self.root.unwrap())
+        self.get_offset(&self.root.unwrap())
     }
 
-    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
+    pub fn get_object(&mut self, key: &object::IndirectObject) -> Object {
+        let offset = self.get_offset(key).unwrap();
+        self.lemmatizer.tokenizer.set(offset);
+        Object::try_from(&mut self.lemmatizer).unwrap()
+    }
+
+    pub fn get_offset(&self, key: &object::IndirectObject) -> Option<usize> {
         match self.table.get(key) {
             Some(v) => {
                 if v.1 {
@@ -264,18 +289,18 @@ impl XRefTable {
             }
             None => match &self.prev {
                 // look for the key in previous xref section
-                Some(xref) => xref.get(key),
+                Some(xref) => xref.get_offset(key),
                 None => None,
             },
         }
     }
 
-    pub fn get_and_fix(&self, key: &object::IndirectObject, bytes: &[u8]) -> Option<usize> {
-        match self.get(key) {
+    pub fn get_and_fix_offset(&self, key: &object::IndirectObject) -> Option<usize> {
+        match self.get_offset(key) {
             Some(offset) => {
                 let mut pattern = format!("{} {} obj", key.0, key.1).as_bytes().to_owned();
                 // xref address is correct
-                if bytes[offset..].starts_with(&pattern) {
+                if self.lemmatizer.tokenizer.file[offset..].starts_with(&pattern) {
                     Some(offset)
                 // xref table adress is broken
                 } else {
@@ -283,7 +308,9 @@ impl XRefTable {
                     pattern.insert(0, b'\n');
                     // look for object header in byte stream
                     Some(
-                        bytes
+                        self.lemmatizer
+                            .tokenizer
+                            .file
                             .windows(pattern.len())
                             .position(|w: &[u8]| w == pattern)
                             .unwrap()
@@ -319,7 +346,7 @@ pub fn startxref(pdf_bytes: &[u8]) -> usize {
         .windows(pattern.len())
         .rposition(|w| w == pattern)
         .unwrap();
-    let mut tok: Tokenizer<'_> = Tokenizer::new(pdf_bytes, index);
+    let mut tok: Tokenizer<'_> = Tokenizer::new(&pdf_bytes[index..]);
     match tok.next() {
         Some(Token::String(s)) => {
             if s.as_slice() != b"startxref" {
@@ -336,18 +363,20 @@ pub fn startxref(pdf_bytes: &[u8]) -> usize {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub struct XRefStream {
-    size: usize,              // trailer size entry (object number used in this XRef)
-    index: (usize, usize),    // subsection object number ranges
-    prev: Option<i32>,        // byte offset of previous xref
+#[derive(Debug, Clone)]
+pub struct XRefStream<'a> {
+    lemmatizer: Lemmatizer<'a>,             // file tokenizer
+    size: usize,                            // trailer size entry (object number used in this XRef)
+    index: (usize, usize),                  // subsection object number ranges
+    prev: Option<i32>,                      // byte offset of previous xref
     root: Option<(i32, i32)>, // catalogue dictionnary or a reference to the root object of the page tree
     info: Option<(i32, i32)>, // information dictionary containing metadata
     w: (usize, usize, usize), // xref stream entry sizes in bytes
     stream: Vec<u8>,          // uncompressed xref entries
+    table: HashMap<IndirectObject, Object>, // memoization table
 }
 
-impl Display for XRefStream {
+impl<'a> Display for XRefStream<'a> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut entries = String::from("Cross reference table entries (stream)\n");
         for object_idx in 0..self.size {
@@ -362,7 +391,7 @@ impl Display for XRefStream {
     }
 }
 
-impl XRefStream {
+impl<'a> XRefStream<'a> {
     // convert slice of entry bytes to numbers
     // high bytes first
     fn num(bytes: &[u8]) -> usize {
@@ -375,12 +404,18 @@ impl XRefStream {
 
     pub fn get_catalog_offset(&self) -> Option<usize> {
         match self.root {
-            Some(r) => self.get(&r),
+            Some(r) => self.get_offset(&r),
             None => None,
         }
     }
 
-    pub fn get(&self, key: &object::IndirectObject) -> Option<usize> {
+    pub fn get_object(&mut self, key: &object::IndirectObject) -> Object {
+        let offset = self.get_offset(key).unwrap();
+        self.lemmatizer.tokenizer.set(offset);
+        Object::try_from(&mut self.lemmatizer).unwrap()
+    }
+
+    pub fn get_offset(&self, key: &object::IndirectObject) -> Option<usize> {
         let object_idx = key.0 as usize;
         // check that object number is in index range
         if object_idx > self.index.1 {
@@ -397,14 +432,14 @@ impl XRefStream {
         match entry_type {
             1 => Some(entry_mid),
             0 => None, // not implemented yet - freed objects (linked list)
-            2 => self.get(&(entry_mid as i32, 0)), // generation number of object stream is implicitly 0
+            2 => self.get_offset(&(entry_mid as i32, 0)), // generation number of object stream is implicitly 0 when type 2
             _ => panic!("Cross reference stream data type can only be 0, 1 or 2"),
         }
     }
 }
 
-impl From<object::Stream<'_>> for XRefStream {
-    fn from(value: object::Stream<'_>) -> Self {
+impl<'a> XRefStream<'a> {
+    fn from(value: object::Stream) -> Self {
         let size = match value.header.get("Size") {
             Some(Object::Numeric(Number::Integer(n))) => *n as usize,
             Some(o) => panic!(
@@ -426,6 +461,7 @@ impl From<object::Stream<'_>> for XRefStream {
         };
 
         XRefStream {
+            lemmatizer,
             size,
             index: match value.header.get("Index") {
                 Some(Object::Array(a)) => {
@@ -452,12 +488,12 @@ impl From<object::Stream<'_>> for XRefStream {
                 None => None
             },
             root: match value.header.get("Root") {
-                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(Object::Ref(r)) => Some(*r),
                 Some(o) => panic!("Cross reference stream dictionnary contains a Root value with wrong type, found {o:?}"),
                 None => None
             },
             info: match value.header.get("Info") {
-                Some(Object::Ref(r, _, _)) => Some(*r),
+                Some(Object::Ref(r)) => Some(*r),
                 Some(o) => panic!("Cross reference stream dictionnary contains a Info value with wrong type, found {o:?}"),
                 None => None
             },
@@ -482,7 +518,9 @@ impl From<object::Stream<'_>> for XRefStream {
                 None => panic!("Cross reference stream dictionnary key W is required")
             },
             // header: &value.header,
-            stream: flate_decode(&value.bytes)
+            stream: flate_decode(&value.bytes),
+            // mem table
+            table: HashMap::new(),
         }
     }
 }
@@ -494,7 +532,7 @@ mod tests {
 
     #[test]
     fn xref_valid_entry_in_use() {
-        let mut entry = Tokenizer::new(b"0000000010 00000 n", 0);
+        let mut entry = Tokenizer::new(b"0000000010 00000 n");
         assert_eq!(
             XRefTable::read_subsection_entry(&mut entry).unwrap(),
             XrefEntry {
@@ -507,7 +545,7 @@ mod tests {
 
     #[test]
     fn xref_valid_entry_not_in_use() {
-        let mut entry = Tokenizer::new(b"0000000000 65535 f", 0);
+        let mut entry = Tokenizer::new(b"0000000000 65535 f");
         assert_eq!(
             XRefTable::read_subsection_entry(&mut entry).unwrap(),
             XrefEntry {
@@ -526,9 +564,9 @@ mod tests {
             XRef::XRefStream(_) => panic!(),
         };
         assert_eq!(table.len(), 6);
-        assert_eq!(table.get(&(1, 0)), Some(10));
-        assert_eq!(table.get(&(2, 0)), Some(79));
-        assert_eq!(table.get(&(5, 0)), Some(380));
+        assert_eq!(table.get_offset(&(1, 0)), Some(10));
+        assert_eq!(table.get_offset(&(2, 0)), Some(79));
+        assert_eq!(table.get_offset(&(5, 0)), Some(380));
     }
 
     #[test]

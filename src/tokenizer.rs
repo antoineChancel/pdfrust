@@ -1,10 +1,7 @@
 use core::panic;
-use std::{char, iter::Peekable, rc::Rc, slice::Iter};
+use std::{char, iter::Peekable, slice::Iter};
 
-use crate::{
-    algebra::Number,
-    xref::{XRef, XRefTable},
-};
+use crate::algebra::Number;
 
 // Tokenizer for PDF objects
 #[derive(Debug)]
@@ -32,14 +29,14 @@ impl WhiteSpace {
 }
 
 #[derive(Debug, PartialEq)]
-pub enum Token<'a> {
+pub enum Token {
     Numeric(Number),
     String(Vec<u8>),
     LitteralString(Vec<u8>),
     HexString(Vec<u8>),
     Name(String),
     Comment(Vec<u8>),
-    IndirectRef((i32, i32), Rc<XRef>, &'a [u8]),
+    IndirectRef(i32, i32),
     DictBegin,
     DictEnd,
     ArrayBegin,
@@ -89,25 +86,21 @@ impl From<&u8> for CharacterSet {
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct Lemmatizer<'a> {
-    tokenizer: Tokenizer<'a>,
-    xref: Rc<XRef>, // xref is owned by Lemmatizer and Reference Objects
+    pub tokenizer: Tokenizer<'a>,
 }
 
 impl<'a> From<Tokenizer<'a>> for Lemmatizer<'a> {
     fn from(tokenizer: Tokenizer<'a>) -> Self {
-        Lemmatizer {
-            tokenizer,
-            xref: Rc::new(XRef::XRefTable(XRefTable::default())),
-        }
+        Lemmatizer { tokenizer }
     }
 }
 
 impl<'a> Lemmatizer<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize, xref: Rc<XRef>) -> Lemmatizer<'a> {
+    pub fn new(bytes: &'a [u8]) -> Lemmatizer<'a> {
         Lemmatizer {
-            tokenizer: Tokenizer::new(bytes, curr_idx),
-            xref,
+            tokenizer: Tokenizer::new(bytes),
         }
     }
 
@@ -117,7 +110,7 @@ impl<'a> Lemmatizer<'a> {
 }
 
 impl<'a> Iterator for Lemmatizer<'a> {
-    type Item = Token<'a>;
+    type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
         match self.tokenizer.next() {
@@ -130,11 +123,7 @@ impl<'a> Iterator for Lemmatizer<'a> {
                             b"R" => {
                                 self.tokenizer.next();
                                 self.tokenizer.next();
-                                return Some(Token::IndirectRef(
-                                    (a, b),
-                                    self.xref.clone(),
-                                    self.tokenizer.bytes,
-                                ));
+                                return Some(Token::IndirectRef(a, b));
                             }
                             b"obj" => {
                                 self.tokenizer.next();
@@ -156,18 +145,22 @@ impl<'a> Iterator for Lemmatizer<'a> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Tokenizer<'a> {
-    pub bytes: &'a [u8],
+    pub file: &'a [u8],
     byte: Peekable<Iter<'a, u8>>,
 }
 
 impl<'a> Tokenizer<'a> {
-    pub fn new(bytes: &'a [u8], curr_idx: usize) -> Tokenizer<'a> {
+    pub fn new(file: &'a [u8]) -> Tokenizer<'a> {
         Tokenizer {
-            bytes,
-            byte: bytes[curr_idx..].iter().peekable(),
+            file,
+            byte: file.iter().peekable(),
         }
+    }
+
+    pub fn set(&mut self, offset: usize) {
+        self.byte = self.file[offset..].iter().peekable()
     }
 
     pub fn next_n(&mut self, length: usize) -> Vec<u8> {
@@ -202,7 +195,7 @@ impl<'a> Tokenizer<'a> {
 }
 
 impl<'a> Iterator for Tokenizer<'a> {
-    type Item = Token<'a>;
+    type Item = Token;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(c) = self.byte.next() {
@@ -376,13 +369,11 @@ impl<'a> Iterator for Tokenizer<'a> {
 #[cfg(test)]
 mod tests {
 
-    use crate::xref::XRefTable;
-
     use super::*;
 
     #[test]
     fn test_pdfbytes_iterator_skipped_comment() {
-        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point", 0);
+        let mut pdf = Tokenizer::new(b"%PDF-1.7\n\n1 0 obj  % entry point");
         assert_eq!(pdf.next(), Some(Token::Comment(b"PDF-1.7".to_vec())));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
@@ -393,13 +384,13 @@ mod tests {
 
     #[test]
     fn test_litteral_string_octal() {
-        let mut pdf = Tokenizer::new(b"(\\003)", 0);
+        let mut pdf = Tokenizer::new(b"(\\003)");
         assert_eq!(pdf.next(), Some(Token::LitteralString(vec![3])))
     }
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string() {
-        let mut pdf = Tokenizer::new(b"(Hello World)", 0);
+        let mut pdf = Tokenizer::new(b"(Hello World)");
         assert_eq!(
             pdf.next(),
             Some(Token::LitteralString(b"Hello World".to_vec()))
@@ -408,7 +399,7 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_litteral_string_with_embedded_parenthesis() {
-        let mut pdf = Tokenizer::new(b"((Hello) (World))", 0);
+        let mut pdf = Tokenizer::new(b"((Hello) (World))");
         assert_eq!(
             pdf.next(),
             Some(Token::LitteralString(b"(Hello) (World)".to_vec()))
@@ -417,7 +408,7 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_iterator_hex_string() {
-        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>", 0);
+        let mut pdf = Tokenizer::new(b"<4E6F762073686D6F7A206B6120706F702E>");
         assert_eq!(
             pdf.next(),
             Some(Token::HexString(
@@ -429,13 +420,13 @@ mod tests {
 
     #[test]
     fn test_pdfbytes_numeric_float() {
-        let mut pdf = Tokenizer::new(b"12.34", 0);
+        let mut pdf = Tokenizer::new(b"12.34");
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Real(12.34))));
     }
 
     #[test]
     fn test_pdfbytes_mediabox_float() {
-        let mut pdf = Tokenizer::new(b"/MediaBox [ 0 0 200.00 200.00 ] ", 0);
+        let mut pdf = Tokenizer::new(b"/MediaBox [ 0 0 200.00 200.00 ] ");
         assert_eq!(pdf.next(), Some(Token::Name("MediaBox".to_string())));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
@@ -447,7 +438,7 @@ mod tests {
 
     #[test]
     fn test_tokenizer_1() {
-        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n", 0);
+        let mut pdf = Tokenizer::new(b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n");
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(2))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
         assert_eq!(pdf.next(), Some(Token::String(b"obj".to_vec())));
@@ -475,7 +466,7 @@ mod tests {
 
     #[test]
     fn test_tokenizer() {
-        let mut pdf = Tokenizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0);
+        let mut pdf = Tokenizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>");
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(9))));
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(0))));
         assert_eq!(pdf.next(), Some(Token::String(b"obj".to_vec())));
@@ -502,8 +493,7 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_1() {
-        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
-        let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>", 0, xref);
+        let mut pdf = Lemmatizer::new(b"9 0 obj\n<</Type/Font/Subtype/TrueType/BaseFont/BAAAAA+DejaVuSans\n/FirstChar 0\n/LastChar 27\n/Widths[600 557 611 411 615 974 317 277 634 520 633 634 277 392 612 317\n549 633 634 591 591 634 634 317 684 277 634 579 ]\n/FontDescriptor 7 0 R\n/ToUnicode 8 0 R\n>>");
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
@@ -528,9 +518,8 @@ mod tests {
 
     #[test]
     fn test_lemmatizer_0() {
-        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
         let bytes = b"2 0 obj\n<<\n  /Type /Pages\n  /MediaBox [ 0 0 200 200 ]\n  /Count 1\n  /Kids [ 3 0 R ]\n>>\nendobj\n";
-        let mut pdf = Lemmatizer::new(bytes, 0, xref.clone());
+        let mut pdf = Lemmatizer::new(bytes);
         assert_eq!(pdf.next(), Some(Token::ObjBegin));
         assert_eq!(pdf.next(), Some(Token::DictBegin));
         assert_eq!(pdf.next(), Some(Token::Name("Type".to_string())));
@@ -546,10 +535,7 @@ mod tests {
         assert_eq!(pdf.next(), Some(Token::Numeric(Number::Integer(1))));
         assert_eq!(pdf.next(), Some(Token::Name("Kids".to_string())));
         assert_eq!(pdf.next(), Some(Token::ArrayBegin));
-        assert_eq!(
-            pdf.next(),
-            Some(Token::IndirectRef((3, 0), xref.clone(), &bytes.as_slice()))
-        );
+        assert_eq!(pdf.next(), Some(Token::IndirectRef(3, 0)));
         assert_eq!(pdf.next(), Some(Token::ArrayEnd));
         assert_eq!(pdf.next(), Some(Token::DictEnd));
         assert_eq!(pdf.next(), Some(Token::ObjEnd));

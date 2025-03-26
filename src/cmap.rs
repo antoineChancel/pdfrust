@@ -1,4 +1,8 @@
-use crate::tokenizer::{Token, Tokenizer};
+use crate::{
+    object::Object,
+    tokenizer::{Token, Tokenizer},
+};
+use core::panic;
 use std::collections::HashMap;
 
 #[derive(Debug, PartialEq, Clone)]
@@ -10,9 +14,19 @@ pub struct ToUnicodeCMap {
     pub cmap: HashMap<usize, char>,
 }
 
+impl From<Object> for ToUnicodeCMap {
+    fn from(value: Object) -> Self {
+        if let Object::String(s) = value {
+            Self::from(s)
+        } else {
+            panic!()
+        }
+    }
+}
+
 impl From<String> for ToUnicodeCMap {
     fn from(value: String) -> Self {
-        let mut tokenizer = Tokenizer::new(value.as_bytes(), 0).peekable();
+        let mut tokenizer = Tokenizer::new(value.as_bytes()).peekable();
 
         // begincodespacerange - endcodespacerange -> size of mapping (1 or 2 bytes)
         for t in tokenizer.by_ref() {

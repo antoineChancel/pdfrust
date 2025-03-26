@@ -21,7 +21,7 @@ use crate::object::Stream as StreamObject;
 #[derive(Debug, PartialEq)]
 pub struct Rectangle([Number; 4]);
 
-impl From<Array<'_>> for Rectangle {
+impl From<Array> for Rectangle {
     fn from(array: Array) -> Self {
         if array.len() != 4 {
             panic!("PDF rectangle contains 4 values, found {}", array.len())
@@ -39,7 +39,7 @@ impl From<Array<'_>> for Rectangle {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 enum Filter {
     FlateDecode,
 }
@@ -53,9 +53,24 @@ impl From<Name> for Filter {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+enum Indirect<T: From<Object>> {
+    Ref(i32, i32),
+    T(T),
+}
+
+impl<T: From<Object> + Clone> Indirect<T> {
+    pub fn read(&self, xref: &mut XRef) -> T {
+        match self {
+            Indirect::Ref(obj, gen) => T::from(xref.get_and_fix_object(&(*obj, *gen))),
+            Indirect::T(obj) => obj.clone(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 struct ObjectStreams {
-    length: Number,
+    length: Indirect<Number>,
     filter: Option<Filter>,
     n: usize,     // number of compressed objects in the stream
     first: usize, // byte offset of first compressed object
@@ -63,8 +78,8 @@ struct ObjectStreams {
     table: HashMap<usize, usize>, // object_number -> byte_offset
 }
 
-impl From<StreamObject<'_>> for ObjectStreams {
-    fn from(value: StreamObject<'_>) -> Self {
+impl ObjectStreams {
+    fn from(value: StreamObject) -> Self {
         let filter = match value.header.get("Filter") {
             Some(Object::Name(name)) => Some(Filter::from(name.clone())),
             None => None,
@@ -73,16 +88,8 @@ impl From<StreamObject<'_>> for ObjectStreams {
         let data = Self::deflate(&value.bytes, &filter);
         ObjectStreams {
             length: match value.header.get("Length").unwrap() {
-                Object::Numeric(n) => n.clone(),
-                Object::Ref((obj, gen), xref, bytes) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref.clone()) {
-                            Object::Numeric(n) => n,
-                            _ => panic!("Length should be a numeric"),
-                        },
-                        None => panic!("Length should be an indirect object"),
-                    }
-                }
+                Object::Numeric(n) => Indirect::T(n.clone()),
+                Object::Ref((obj, gen)) => Indirect::Ref(*obj, *gen),
                 _ => panic!("Length should be a numeric"),
             },
             filter,
@@ -103,8 +110,8 @@ impl From<StreamObject<'_>> for ObjectStreams {
 }
 
 impl ObjectStreams {
-    fn create_table(&mut self, xref: Rc<XRef>) {
-        let mut parser = Lemmatizer::new(self.data.as_slice(), 0, xref);
+    fn create_table(&mut self) {
+        let mut parser = Lemmatizer::new(self.data.as_slice());
         self.table.clear();
         loop {
             let obj_num = match parser.next() {
@@ -121,27 +128,33 @@ impl ObjectStreams {
         }
     }
 
-    fn get(&self, obj_num: usize, xref: Rc<XRef>) -> Object {
-        Object::new(
-            &self.data,
-            self.table.get(&obj_num).unwrap() + self.first,
-            xref,
-        )
+    fn get(&self, obj_num: usize) -> Object {
+        Object::new(&self.data[self.table.get(&obj_num).unwrap() + self.first..])
     }
 }
 
 impl Deflate for ObjectStreams {}
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 struct Stream {
-    length: Number,
+    length: Indirect<Number>,
     filter: Option<Filter>,
     data: Vec<u8>,
 }
 
+impl From<Object> for Stream {
+    fn from(value: Object) -> Self {
+        if let Object::Stream(s) = value {
+            Self::from(s)
+        } else {
+            panic!("")
+        }
+    }
+}
+
 impl Stream {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+    pub fn new(bytes: &[u8]) -> Self {
+        match Object::new(bytes) {
             Object::Stream(stream_object) => Stream::from(stream_object),
             _ => panic!("Stream should be a dictionary"),
         }
@@ -164,8 +177,8 @@ trait Deflate {
 
 impl Deflate for Stream {}
 
-impl From<StreamObject<'_>> for Stream {
-    fn from(object: StreamObject<'_>) -> Self {
+impl Stream {
+    fn from(object: StreamObject) -> Self {
         let filter = match object.header.get("Filter") {
             Some(Object::Name(name)) => Some(Filter::from(name.clone())),
             None => None,
@@ -174,16 +187,8 @@ impl From<StreamObject<'_>> for Stream {
         let data = Self::deflate(&object.bytes, &filter);
         Stream {
             length: match object.header.get("Length").unwrap() {
-                Object::Numeric(n) => n.clone(),
-                Object::Ref((obj, gen), xref, bytes) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref.clone()) {
-                            Object::Numeric(n) => n,
-                            _ => panic!("Length should be a numeric"),
-                        },
-                        None => panic!("Length should be an indirect object"),
-                    }
-                }
+                Object::Numeric(n) => Indirect::T(n.clone()),
+                Object::Ref((obj, gen)) => Indirect::Ref(*obj, *gen),
                 _ => panic!("Length should be a numeric"),
             },
             filter,
@@ -192,21 +197,21 @@ impl From<StreamObject<'_>> for Stream {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum PageTreeKids {
-    Page(Page),
-    PageTreeNode(Rc<PageTreeNode>),
+    Page(Indirect<Page>),
+    PageTreeNode(Indirect<PageTreeNode>),
 }
 
 impl PageTreeKids {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref.clone()) {
+    pub fn new(bytes: &[u8], curr_idx: usize) -> Self {
+        match Object::new(&bytes[curr_idx..]) {
             Object::Dictionary(dict) => match dict.get("Type") {
                 Some(Object::Name(name)) => match name.as_str() {
-                    "Pages" => {
-                        PageTreeKids::PageTreeNode(PageTreeNode::new(bytes, curr_idx, xref.clone()))
-                    }
-                    "Page" => PageTreeKids::Page(Page::new(bytes, curr_idx, xref)),
+                    "Pages" => PageTreeKids::PageTreeNode(Indirect::T(PageTreeNode::new(
+                        &bytes[curr_idx..],
+                    ))),
+                    "Page" => PageTreeKids::Page(Indirect::T(Page::new(&bytes[curr_idx..]))),
                     _ => panic!("Unexpected dictionnary type"),
                 },
                 Some(o) => panic!("Type should be a name, found object {o:?}"),
@@ -216,10 +221,12 @@ impl PageTreeKids {
         }
     }
 
-    pub fn extract(&self, e: Extract) -> String {
+    pub fn extract(&self, e: Extract, xref: &mut XRef) -> String {
         match self {
-            PageTreeKids::Page(page) => page.extract(e),
-            PageTreeKids::PageTreeNode(page_tree_node) => page_tree_node.extract(e),
+            PageTreeKids::Page(page) => page.read(xref).extract(e, xref),
+            PageTreeKids::PageTreeNode(page_tree_node) => {
+                page_tree_node.read(xref).extract(e, xref)
+            }
         }
     }
 }
@@ -231,25 +238,27 @@ pub struct Font {
     pub base_font: Name,
     first_char: Option<Number>, // Number -> Integer
     last_char: Option<Number>,  // Number -> Integer
-    widths: Option<Vec<Number>>,
-    pub to_unicode: Option<ToUnicodeCMap>,
+    widths: Option<Indirect<Vec<Number>>>,
+    pub to_unicode: Option<Indirect<ToUnicodeCMap>>,
     encoding: Option<Name>,
 }
 
 impl Font {
-    pub fn estimate_space_width(&self) -> Number {
-        match self.get_width(b' ') {
+    pub fn estimate_space_width(&self, xref: &mut XRef) -> Number {
+        match self.get_width(b' ', xref) {
             Ok(space_width) => space_width,
-            Err(_) => match self.average_width() {
+            Err(_) => match self.average_width(xref) {
                 Ok(average_width) => average_width,
                 Err(_) => Number::Integer(200),
             },
         }
     }
 
-    fn average_width(&self) -> Result<Number, &str> {
+    fn average_width(&self, xref: &mut XRef) -> Result<Number, &str> {
+        // Font contains a width
         if let Some(widths) = &self.widths {
             let mut sum = Number::Real(0.0);
+            let widths = &widths.read(xref);
             for n in widths {
                 sum = sum + n.clone();
             }
@@ -260,7 +269,7 @@ impl Font {
     }
 
     // horizontal displacement
-    pub fn get_width(&self, c: u8) -> Result<Number, &str> {
+    pub fn get_width(&self, c: u8, xref: &mut XRef) -> Result<Number, &str> {
         if let Some(Number::Integer(first_char)) = &self.first_char {
             if i32::from(c) < *first_char {
                 return Err("Cannot get character width from the current font range");
@@ -270,6 +279,7 @@ impl Font {
             Some(widths) => {
                 let c_offset: usize =
                     usize::from(c) - usize::from(self.first_char.clone().unwrap());
+                let widths = widths.read(xref);
                 match widths.get(c_offset) {
                     Some(n) => Ok(n.clone() / Number::Real(1000.0)), // cf note on TJ in page 408
                     _ => Err("Width of char was not found in the font"),
@@ -289,7 +299,17 @@ impl Display for Font {
     }
 }
 
-impl From<Dictionary<'_>> for Font {
+impl From<Object> for Font {
+    fn from(value: Object) -> Self {
+        if let Object::Dictionary(d) = value {
+            Self::from(d)
+        } else {
+            panic!("Unable to create Font from object")
+        }
+    }
+}
+
+impl From<Dictionary> for Font {
     fn from(value: Dictionary) -> Self {
         match value.get("Type") {
             Some(Object::Name(t)) => {
@@ -325,19 +345,8 @@ impl From<Dictionary<'_>> for Font {
                 None => None,
             },
             widths: match value.get("Widths") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref.clone()) {
-                            Object::Array(a) => Some(a.iter().map(|o| match o {
-                                Object::Numeric(n) => n.clone(),
-                                o => panic!("Widths should be an array containing only numbers, found {o:?}")
-                            }).collect()),
-                            o => panic!("ToUnicode should be a stream object, found {o:?}"),
-                        },
-                        None => panic!("ToUnicode stream object not found in xref table"),
-                    }
-                }
-                Some(Object::Array(a)) => Some(
+                Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
+                Some(Object::Array(a)) => Some(Indirect::T(
                     a.iter()
                         .map(|o| match o {
                             Object::Numeric(n) => n.clone(),
@@ -346,23 +355,12 @@ impl From<Dictionary<'_>> for Font {
                             ),
                         })
                         .collect(),
-                ),
+                )),
                 Some(o) => panic!("Widths should be an array of objects, found {o:?}"),
                 None => None,
             },
             to_unicode: match value.get("ToUnicode") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => match Object::new(bytes, address, xref.clone()) {
-                            Object::Stream(stream) => Some(ToUnicodeCMap::from(
-                                String::from_utf8_lossy(&Stream::from(stream).get_data())
-                                    .to_string(),
-                            )),
-                            o => panic!("ToUnicode should be a stream object, found {o:?}"),
-                        },
-                        None => panic!("ToUnicode stream object not found in xref table"),
-                    }
-                }
+                Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
                 None => None,
                 _ => panic!("ToUnicode should be an indirect object"),
             },
@@ -376,68 +374,74 @@ impl From<Dictionary<'_>> for Font {
 }
 
 #[derive(Default, Debug, PartialEq, Clone)]
-pub struct FontMap(pub HashMap<Name, Font>);
+pub struct FontMap(pub HashMap<Name, Indirect<Font>>);
 
 impl Display for FontMap {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let fonts = self
             .0
             .values()
-            .map(|font| format!("{font}\n"))
+            .map(|font| format!("{font:?}\n"))
             .collect::<Vec<String>>()
             .join("\n");
         write!(f, "{fonts}")
     }
 }
 
-impl From<Dictionary<'_>> for FontMap {
+impl FontMap {
     fn from(value: Dictionary) -> Self {
         FontMap(
             value
                 .iter()
                 .map(|(key, value)| match value {
-                    Object::Ref((obj, gen), xref, bytes) => match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => {
-                            match Object::new(bytes, address, xref.clone()) {
-                            Object::Dictionary(t) => (key.clone(), Font::from(t)),
-                            o => panic!("Font object is not a dictionary, found {o:?}"),
-                        }},
-                        None => panic!("Font dictionnary object associated to {key:?} was not found in xref table"),
-                    },
-                    _ => panic!("Font should be an indirect object"),
+                    Object::Ref((obj, gen)) => (key.clone(), Indirect::Ref(*obj, *gen)),
+                    _ => panic!("FontMap values should be indirect objects"),
                 })
                 .collect(),
         )
     }
 }
 
+impl From<Object> for FontMap {
+    fn from(value: Object) -> Self {
+        if let Object::Dictionary(d) = value {
+            Self::from(d)
+        } else {
+            panic!("Unable to create FontMap from object")
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Default)]
 pub struct Resources {
-    pub font: Option<FontMap>,
+    pub font: Option<Indirect<FontMap>>,
+}
+
+impl From<Object> for Resources {
+    fn from(value: Object) -> Self {
+        if let Object::Dictionary(d) = value {
+            Self::from(d)
+        } else {
+            panic!("Unable to crate Resources from object {value:?}")
+        }
+    }
 }
 
 impl Resources {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+    pub fn new(bytes: &[u8]) -> Self {
+        match Object::new(bytes) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
     }
 }
 
-impl From<Dictionary<'_>> for Resources {
+impl From<Dictionary> for Resources {
     fn from(value: Dictionary) -> Self {
         Resources {
             font: match value.get("Font") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    xref.get_and_fix(&(*obj, *gen), bytes).map(|address| {
-                        FontMap::from(match Object::new(bytes, address, xref.clone()) {
-                            Object::Dictionary(t) => t,
-                            _ => panic!("Font should be a dictionary"),
-                        })
-                    })
-                }
-                Some(Object::Dictionary(t)) => Some(FontMap::from(t.clone())),
+                Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
+                Some(Object::Dictionary(t)) => Some(Indirect::T(FontMap::from(t.clone()))),
                 None => None,
                 f => panic!("Font should be an indirect object or a dictionary; found {f:?}"),
             },
@@ -445,21 +449,21 @@ impl From<Dictionary<'_>> for Resources {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PageTreeNode {
-    parent: RefCell<Weak<PageTreeNode>>, // PageTreeNode parent
-    kids: Vec<PageTreeKids>,             // PageTreeNode kids can be a Page or a PageTreeNode
-    // count: Number,                       // Number of leaf nodes
+    parent: Indirect<Rc<PageTreeNode>>, // PageTreeNode parent
+    kids: Vec<PageTreeKids>,            // PageTreeNode kids can be a Page or a PageTreeNode
+    // count: Number, // Number of leaf nodes
     // Inheritables (cf page 149)
     // rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
     // crop_box: Option<Rectangle>, // CropBox Rectangle
     // media_box: Option<Rectangle>, // MediaBox Rectangle
-    resources: Option<Resources>, // Resource dictionary
+    resources: Option<Indirect<Resources>>, // Resource dictionary
 }
 
-impl PageTreeNode {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Rc<Self> {
-        match Object::new(bytes, curr_idx, xref) {
+impl From<Object> for PageTreeNode {
+    fn from(value: Object) -> Self {
+        match value {
             Object::Dictionary(dict) => {
                 let page_tree_node = Rc::new(Self::from(dict));
                 // update parent weak reference of children
@@ -476,27 +480,33 @@ impl PageTreeNode {
             _ => panic!("Trailer should be a dictionary"),
         }
     }
+}
 
-    fn get_resources(&self) -> Option<Resources> {
+impl PageTreeNode {
+    pub fn new(bytes: &[u8]) -> Self {
+        PageTreeNode::from(Object::new(bytes))
+    }
+
+    fn get_resources(&self, xref: &mut XRef) -> Option<Resources> {
         match &self.resources {
-            Some(r) => Some(r.clone()), // TODO : improve with smart pointer instead of cloning
+            Some(r) => Some(r.read(xref)), // TODO : improve with smart pointer instead of cloning
             None => match self.parent.borrow().upgrade() {
-                Some(p) => p.get_resources(),
+                Some(p) => p.read(xref).get_resources(xref),
                 None => None,
             },
         }
     }
 
-    pub fn extract(&self, e: Extract) -> String {
+    pub fn extract(&self, e: Extract, xref: &mut XRef) -> String {
         self.kids
             .iter()
-            .map(|kid| kid.extract(e.clone()))
+            .map(|kid| kid.extract(e.clone(), xref))
             .collect::<Vec<String>>()
             .join("\n")
     }
 }
 
-impl From<Dictionary<'_>> for PageTreeNode {
+impl From<Dictionary> for PageTreeNode {
     fn from(value: Dictionary) -> Self {
         PageTreeNode {
             parent: RefCell::new(Weak::new()),
@@ -504,43 +514,14 @@ impl From<Dictionary<'_>> for PageTreeNode {
                 Object::Array(arr) => arr
                     .iter()
                     .map(|kid| match kid {
-                        Object::Ref((obj, gen), xref, bytes) => {
-                            match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                Some(address) => PageTreeKids::new(bytes, address, xref.clone()),
-                                None => panic!("Kid not found in xref table"),
-                            }
-                        }
+                        Object::Ref((obj, gen)) => Indirect::Ref(*obj, *gen),
                         _ => panic!("Kid should be an indirect object"),
                     })
                     .collect(),
                 _ => panic!("Kids should be an array"),
             },
-            // count: match value.get("Count").unwrap() {
-            //     Object::Numeric(n) => n.clone(),
-            //     _ => panic!("Count should be a numeric"),
-            // },
-            // rotate: match value.get("Rotate") {
-            //     Some(Object::Numeric(n)) => Some(n.clone()),
-            //     None => None,
-            //     _ => panic!("Rotate should be a numeric"),
-            // },
-            // crop_box: match value.get("CropBox") {
-            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-            //     None => None,
-            //     _ => panic!("CropBox should be an array"),
-            // },
-            // media_box: match value.get("MediaBox") {
-            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-            //     None => None,
-            //     _ => panic!("MediaBox should be an array"),
-            // },
             resources: match value.get("Resources") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Resources::new(bytes, address, xref.clone())),
-                        None => panic!("Kid not found in xref table"),
-                    }
-                }
+                Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
                 None => None,
                 _ => panic!("Resources should be an indirect object"),
             },
@@ -548,30 +529,40 @@ impl From<Dictionary<'_>> for PageTreeNode {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Page {
     parent: RefCell<Weak<PageTreeNode>>, // Page leaf parent
     // last_modified: Option<String>,       // Date and time of last modification
-    resources: Option<Resources>, // Resource dictionary (inheritable from PageTreeNode)
+    resources: Option<Indirect<Resources>>, // Resource dictionary (inheritable from PageTreeNode)
     // media_box: Option<Rectangle>,        // MediaBox rectangle (inheritable from PageTreeNode)
     // crop_box: Option<Rectangle>,         // CropBox rectangle (inheritable from PageTreeNode)
-    contents: Option<Stream>, // Page content
+    contents: Option<Indirect<Stream>>, // Page content
+}
+
+impl From<Object> for Page {
+    fn from(value: Object) -> Self {
+        if let Object::Dictionary(d) = value {
+            Self::from(d)
+        } else {
+            panic!()
+        }
+    }
 }
 
 impl Page {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+    pub fn new(bytes: &[u8]) -> Self {
+        match Object::new(bytes) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
     }
 
     // Get resources from Page or parent if missing
-    pub fn get_resources(&self) -> Box<Resources> {
+    pub fn get_resources(&self, xref: &mut XRef) -> Box<Resources> {
         match &self.resources {
-            Some(r) => Box::new(r.clone()),
+            Some(r) => Box::new(r.read(xref).clone()),
             None => match self.parent.borrow().upgrade() {
-                Some(p) => match p.get_resources() {
+                Some(p) => match p.read(xref).get_resources() {
                     Some(r) => Box::new(r),
                     None => panic!("Resources not found for current Page and in parent tree"),
                 },
@@ -580,40 +571,40 @@ impl Page {
         }
     }
 
-    pub fn extract(&self, e: Extract) -> String {
+    pub fn extract(&self, e: Extract, xref: &mut XRef) -> String {
         match e {
-            Extract::Text => self.extract_text(false),
-            Extract::Chars => self.extract_text(true),
-            Extract::RawContent => self.extract_stream(),
-            Extract::Font => self.extract_font(),
+            Extract::Text => self.extract_text(false, xref),
+            Extract::Chars => self.extract_text(true, xref),
+            Extract::RawContent => self.extract_stream(xref),
+            Extract::Font => self.extract_font(xref),
             Extract::Xref => String::new(),
         }
     }
 
-    fn extract_font(&self) -> String {
-        match self.get_resources().font {
-            Some(font_map) => font_map.to_string(),
+    fn extract_font(&self, xref: &mut XRef) -> String {
+        match self.get_resources(xref).font {
+            Some(font_map) => font_map.read(xref).to_string(),
             None => panic!("Missing font in current page resources"),
         }
     }
 
-    fn extract_text(&self, char: bool) -> String {
-        let content_bytes = self.extract_stream();
+    fn extract_text(&self, char: bool, xref: &mut XRef) -> String {
+        let content_bytes = self.extract_stream(xref);
         let mut text_content =
-            content::TextContent::new(content_bytes.as_bytes(), self.get_resources());
-        text_content.get_text(char)
+            content::TextContent::new(content_bytes.as_bytes(), self.get_resources(xref));
+        text_content.get_text(char, xref)
     }
 
-    fn extract_stream(&self) -> String {
+    fn extract_stream(&self, xref: &mut XRef) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => String::from_utf8_lossy(&stream.get_data()).to_string(),
+            Some(stream) => String::from_utf8_lossy(stream.read(xref).get_data()).to_string(),
             None => panic!("Contents should not be empty"),
         }
     }
 }
 
-impl From<Dictionary<'_>> for Page {
+impl From<Dictionary> for Page {
     fn from(value: Dictionary) -> Self {
         Page {
             parent: RefCell::new(Weak::new()),
@@ -623,13 +614,8 @@ impl From<Dictionary<'_>> for Page {
             //     _ => panic!("LastModified should be a string"),
             // },
             resources: match value.get("Resources").unwrap() {
-                Object::Dictionary(t) => Some(Resources::from(t.clone())),
-                Object::Ref((obj, gen), xref, bytes) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Resources::new(bytes, address, xref.clone())),
-                        None => panic!("Resource dictionnary address not found in xref keys"),
-                    }
-                }
+                Object::Dictionary(t) => Some(Indirect::T(Resources::from(t.clone()))),
+                Object::Ref((obj, gen)) => Some(Indirect::Ref(*obj, *gen)),
                 t => panic!("Resources should be an dictionary object {t:?}"),
             },
             // media_box: match value.get("MediaBox") {
@@ -643,26 +629,12 @@ impl From<Dictionary<'_>> for Page {
             //     None => None,
             // },
             contents: match value.get("Contents") {
-                Some(Object::Ref((obj, gen), xref, bytes)) => {
-                    match xref.get_and_fix(&(*obj, *gen), bytes) {
-                        Some(address) => Some(Stream::new(bytes, address, xref.clone())),
-                        None => panic!("Resource dictionnary address not found in xref keys"),
-                    }
-                }
+                Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
                 None => None,
                 Some(Object::Array(references)) => {
                     if references.len() == 1 {
                         match references.first() {
-                            Some(Object::Ref((obj, gen), xref, bytes)) => {
-                                match xref.get_and_fix(&(*obj, *gen), bytes) {
-                                    Some(address) => {
-                                        Some(Stream::new(bytes, address, xref.clone()))
-                                    }
-                                    None => panic!(
-                                        "Resource dictionnary address not found in xref keys"
-                                    ),
-                                }
-                            }
+                            Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
                             _ => panic!("Unreadable array of content streams"),
                         }
                     } else {
@@ -681,17 +653,17 @@ impl From<Dictionary<'_>> for Page {
 pub struct Catalog {
     // The page tree node that is the root of the document’s page tree
     // Must be an indirect reference
-    pub pages: Option<Rc<PageTreeNode>>,
+    pub pages: Option<Rc<Indirect<PageTreeNode>>>,
 }
 
 impl Catalog {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref.clone()) {
+    pub fn new(bytes: &[u8], curr_idx: usize) -> Self {
+        match Object::new(&bytes[curr_idx..]) {
             Object::Dictionary(dict) => Self::from(dict),
             Object::Stream(stream) => {
                 let mut stream = ObjectStreams::from(stream);
-                stream.create_table(xref.clone());
-                let obj = stream.get(2, xref);
+                stream.create_table();
+                let obj = stream.get(2);
                 panic!("{obj:?}");
             }
             o => panic!("Catalog should be a dictionary, found {o:?}"),
@@ -704,15 +676,11 @@ impl Catalog {
             None => panic!("Pages should not be empty"),
         }
     }
-}
 
-impl From<Dictionary<'_>> for Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen), xref, bytes) => xref
-                    .get_and_fix(&(*obj, *gen), bytes)
-                    .map(|address| PageTreeNode::new(bytes, address, xref.clone())),
+                Object::Ref((obj, gen)) => Some(Indirect::Ref(*obj, *gen)),
                 _ => panic!("Pages should be an indirect object"),
             },
         }
@@ -723,11 +691,10 @@ impl From<Dictionary<'_>> for Catalog {
 mod tests {
 
     use super::*;
-    use crate::xref::XRefTable;
 
     #[test]
     fn test_catalog() {
-        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0, Rc::new(XRef::XRefTable(XRefTable::default())));
+        let catalog = Catalog::new(b"1 0 obj  % entry point\n    <<\n      /Type /Catalog\n      /Pages 2 0 R\n    >>\n    endobj".as_slice(), 0);
         assert!(catalog.pages.is_none())
     }
 }

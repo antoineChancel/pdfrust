@@ -1,7 +1,5 @@
-use crate::xref::XRef;
-
 use super::object::{Dictionary, Object};
-use std::{fmt::Display, rc::Rc};
+use std::fmt::Display;
 
 #[derive(Debug, PartialEq)]
 pub struct Info {
@@ -21,15 +19,15 @@ impl Display for Info {
 }
 
 impl Info {
-    pub fn new(bytes: &[u8], curr_idx: usize, xref: Rc<XRef>) -> Self {
-        match Object::new(bytes, curr_idx, xref) {
+    pub fn new(bytes: &[u8], curr_idx: usize) -> Self {
+        match Object::new(&bytes[curr_idx..]) {
             Object::Dictionary(dict) => Self::from(dict),
             _ => panic!("Trailer should be a dictionary"),
         }
     }
 }
 
-impl From<Dictionary<'_>> for Info {
+impl From<Dictionary> for Info {
     fn from(value: Dictionary) -> Self {
         Info {
             title: match value.get("Title") {
@@ -76,15 +74,13 @@ impl From<Dictionary<'_>> for Info {
 
 #[cfg(test)]
 mod tests {
-    use crate::xref::XRefTable;
 
     use super::*;
 
     #[test]
     fn test_info_dict_1() {
         let bytes = b"1 0 obj\n<< /Title (sample) /Author (Philip Hutchison) /Creator (Pages) /Producer (Mac OS X 10.5.4 Quartz PDFContext)\n/CreationDate (D:20080701052447Z00'00') /ModDate (D:20080701052447Z00'00')\n>>\nendobj";
-        let xref = Rc::new(XRef::XRefTable(XRefTable::default()));
-        let info = Info::new(bytes.as_slice(), 0, xref);
+        let info = Info::new(bytes.as_slice(), 0);
         assert_eq!(
             info,
             Info {

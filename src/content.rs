@@ -5,6 +5,7 @@ use crate::{
     body::Resources,
     object::Name,
     tokenizer::{Token, Tokenizer},
+    xref::XRef,
 };
 
 #[derive(Default)]
@@ -114,7 +115,7 @@ impl<'a> From<&'a [u8]> for Content<'a> {
             graphic_state: GraphicsState::default(),
             graphic_state_stack: vec![],
             text_object: TextObject::default(),
-            tokenizer: Tokenizer::new(bytes, 0),
+            tokenizer: Tokenizer::new(bytes),
         }
     }
 }
@@ -725,11 +726,11 @@ impl<'a> TextContent<'a> {
     pub fn new(content_bytes: &'a [u8], resources: Box<Resources>) -> Self {
         Self {
             resources,
-            content: Content::from(Tokenizer::new(content_bytes, 0)),
+            content: Content::from(Tokenizer::new(content_bytes)),
         }
     }
 
-    pub fn get_text(&mut self, display_char: bool) -> String {
+    pub fn get_text(&mut self, display_char: bool, xref: &mut XRef) -> String {
         let mut output = String::new();
         let mut tm_prev = self.content.text_object.tm;
         while let Some(i) = self.content.next() {
@@ -737,11 +738,15 @@ impl<'a> TextContent<'a> {
                 GraphicsInstruction::Tj(text) => {
                     let font = match self.content.graphic_state.text_state.tf {
                         Some(ref s) => match &self.resources.font {
-                            Some(fontmap) => fontmap.0.get(s).unwrap(),
+                            Some(fontmap) => {
+                                let fontmap = fontmap.read(xref);
+                                fontmap.0.get(s).unwrap()
+                            }
                             None => panic!("Fontmap does not contains the font name {s:?}"),
                         },
                         None => panic!("Text state should have a font set"),
                     };
+                    let font = font.read(xref);
 
                     // detect a line feed if tm y coordinate has changed
                     if self.content.text_object.tm.get_ty() != tm_prev.get_ty() {
@@ -768,7 +773,10 @@ impl<'a> TextContent<'a> {
                     // current font
                     let font = match self.content.graphic_state.text_state.tf {
                         Some(ref s) => match &self.resources.font {
-                            Some(fontmap) => fontmap.0.get(s).unwrap(),
+                            Some(fontmap) => {
+                                let fontmap = fontmap.read(xref);
+                                fontmap.0.get(s).unwrap()
+                            }
                             None => panic!("Fontmap does not contains the font name {s:?}"),
                         },
                         None => panic!("Text state should have a font set"),
@@ -786,8 +794,9 @@ impl<'a> TextContent<'a> {
                         match c {
                             ArrayVal::Text(t) => {
                                 // string characters in to unicode map
-                                match &font.to_unicode {
+                                match font.read(xref).to_unicode {
                                     Some(to_unicode_cmap) => {
+                                        let to_unicode_cmap = to_unicode_cmap.read(xref);
                                         let mut hex_iter = t.iter();
                                         while let Some(c) = hex_iter.next() {
                                             let char_idx = match to_unicode_cmap.is_two_bytes {
@@ -806,8 +815,8 @@ impl<'a> TextContent<'a> {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
                                                     char,
-                                                    font.subtype,
-                                                    font.base_font,
+                                                    font.read(xref).subtype,
+                                                    font.read(xref).base_font,
                                                     self.content.text_object.tm
                                                 )
                                                 .as_str();
@@ -815,10 +824,11 @@ impl<'a> TextContent<'a> {
                                                 output.push(*char);
                                             }
                                             // displacement vector
-                                            let w0: Number = match font.clone().get_width(*c) {
-                                                Ok(n) => n,
-                                                Err(_) => Number::Real(0.0), // assumption at the moment, probably need to leverage Font Encoding
-                                            };
+                                            let w0: Number =
+                                                match font.read(xref).get_width(*c, xref) {
+                                                    Ok(n) => n,
+                                                    Err(_) => Number::Real(0.0), // assumption at the moment, probably need to leverage Font Encoding
+                                                };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
                                                 Some(n) => n,
@@ -862,8 +872,8 @@ impl<'a> TextContent<'a> {
                                                 output += format!(
                                                     "{:?}, {:?}, {:?}, {:}\n",
                                                     c as char,
-                                                    font.subtype,
-                                                    font.base_font,
+                                                    font.read(xref).subtype,
+                                                    font.read(xref).base_font,
                                                     self.content.text_object.tm
                                                 )
                                                 .as_str();
@@ -871,10 +881,11 @@ impl<'a> TextContent<'a> {
                                                 output.push(c as char);
                                             }
                                             // displacement vector
-                                            let w0: Number = match font.clone().get_width(c) {
-                                                Ok(w) => w,
-                                                Err(_) => Number::Real(0.0),
-                                            };
+                                            let w0: Number =
+                                                match font.read(xref).get_width(c, xref) {
+                                                    Ok(w) => w.clone(),
+                                                    Err(_) => Number::Real(0.0),
+                                                };
                                             // let w1 = Number::Integer(0); // temporary, need to be updated with writing mode (horizontal writing only)
                                             let tfs = match &self.content.graphic_state.text_state.tfs {
                                                 Some(n) => n,
