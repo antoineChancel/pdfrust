@@ -1,7 +1,7 @@
 use crate::{
     algebra::Number,
     filters::flate_decode,
-    object::{IndirectObject, Lemmatizer, Object},
+    object::{Lemmatizer, Object},
     tokenizer::{Token, Tokenizer},
 };
 
@@ -14,7 +14,7 @@ pub enum XRef<'a> {
     XRefStream(XRefStream<'a>),
 }
 
-impl<'a> Display for XRef<'a> {
+impl Display for XRef<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             XRef::XRefTable(table) => table.fmt(f),
@@ -53,7 +53,7 @@ impl<'a> XRef<'a> {
     }
 
     pub fn new(file_bytes: &'a [u8], offset: usize) -> Self {
-        let mut lemmatizer = Lemmatizer::new(&file_bytes);
+        let mut lemmatizer = Lemmatizer::new(file_bytes);
         lemmatizer.tokenizer.set(offset);
         Self::from(lemmatizer)
     }
@@ -66,10 +66,10 @@ impl<'a> From<Lemmatizer<'a>> for XRef<'a> {
             Some(Token::String(_)) => XRef::XRefTable(XRefTable::from(value)),
             // Cross reference stream object starts with "0 0 obj"
             Some(Token::Numeric(_)) => match Object::try_from(&mut value).unwrap() {
-                Object::Stream(s) => XRef::XRefStream(XRefStream::from(s)),
+                Object::Stream(s) => XRef::XRefStream(XRefStream::from(s, value)),
                 o => panic!("Xref object cannot be of type {o:?}"),
             },
-            Some(_t) => panic!("Xref object or strign 'xref' not found"),
+            Some(t) => panic!("Xref object or string 'xref' not found; token found instead {t:?}"),
             None => panic!("End of stream"),
         }
     }
@@ -78,26 +78,26 @@ impl<'a> From<Lemmatizer<'a>> for XRef<'a> {
 #[derive(Debug, Clone)]
 pub struct XRefTable<'a> {
     // Trailer - Object number
-    size: Number,
+    // size: Number,
     // Trailer - Byte offset from the beginning of the file to the beginning of the previous cross-reference section
     prev: Option<Box<XRef<'a>>>,
     // Trailer - Catalogue dictionnary or a reference to the root object of the page tree
     root: Option<(i32, i32)>,
     // Trailer - Encryption dictionnary
-    encrypt: Option<(i32, i32)>,
+    // encrypt: Option<(i32, i32)>,
     // Trailer - Information dictionary containing metadata
-    info: Option<(i32, i32)>,
+    // info: Option<(i32, i32)>,
     // Trailer - Array of two byte-strings constituting a file identifier
     // id: Option<Array<'a>>,
     // XRef table data
     table: HashMap<object::IndirectObject, (usize, bool)>,
     // Mem objects
-    objects: HashMap<object::IndirectObject, Object>,
+    // objects: HashMap<object::IndirectObject, Object>,
     // File bytes
     lemmatizer: Lemmatizer<'a>,
 }
 
-impl<'a> Display for XRefTable<'a> {
+impl Display for XRefTable<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         writeln!(f, "Cross reference table entries (classic)\n")?;
         write!(f, "{:#?}", self.table)
@@ -154,10 +154,10 @@ impl<'a> From<Lemmatizer<'a>> for XRefTable<'a> {
         };
 
         XRefTable {
-            size: match trailer.get("Size") {
-                Some(Object::Numeric(n)) => n.clone(),
-                _ => panic!("Size should be a numeric"),
-            },
+            // size: match trailer.get("Size") {
+            //     Some(Object::Numeric(n)) => n.clone(),
+            //     _ => panic!("Size should be a numeric"),
+            // },
             // Byte offset from the beginning of the file to the beginning of the previous cross-reference section
             prev: match trailer.get("Prev") {
                 Some(Object::Numeric(Number::Integer(offset))) => {
@@ -177,44 +177,44 @@ impl<'a> From<Lemmatizer<'a>> for XRefTable<'a> {
                 ),
             },
             // Encryption dictionnary
-            encrypt: match trailer.get("Encrypt") {
-                Some(Object::Ref((obj, gen))) => Some((*obj, *gen)),
-                None => None,
-                _ => panic!("Encrypt should be an indirect object"),
-            },
+            // encrypt: match trailer.get("Encrypt") {
+            //     Some(Object::Ref((obj, gen))) => Some((*obj, *gen)),
+            //     None => None,
+            //     _ => panic!("Encrypt should be an indirect object"),
+            // },
             // Information dictionary containing metadata
-            info: match trailer.get("Info") {
-                Some(Object::Ref(r)) => Some(*r),
-                None => None,
-                _ => panic!("Info should be an indirect object"),
-            },
+            // info: match trailer.get("Info") {
+            //     Some(Object::Ref(r)) => Some(*r),
+            //     None => None,
+            //     _ => panic!("Info should be an indirect object"),
+            // },
             // Array of two byte-strings constituting a file identifier
             // id: Option<Array<'a>>,
             table,
-            objects: HashMap::new(),
+            // objects: HashMap::new(),
             // File tokenizer
             lemmatizer,
         }
     }
 }
 
-impl<'a> Default for XRefTable<'a> {
+impl Default for XRefTable<'_> {
     fn default() -> Self {
         XRefTable {
-            size: Number::Integer(0),
+            // size: Number::Integer(0),
             prev: None,
             root: None,
-            encrypt: None,
-            info: None,
+            // encrypt: None,
+            // info: None,
             // id: None,
             table: HashMap::new(),
-            objects: HashMap::new(),
+            // objects: HashMap::new(),
             lemmatizer: Lemmatizer::new(b""),
         }
     }
 }
 
-impl<'a> XRefTable<'a> {
+impl XRefTable<'_> {
     fn read_subsection_entry(tokenizer: &mut Tokenizer) -> Option<XrefEntry> {
         // either the next obj num if free or byte offset if in use
         let number = match tokenizer.next() {
@@ -365,18 +365,18 @@ pub fn startxref(pdf_bytes: &[u8]) -> usize {
 
 #[derive(Debug, Clone)]
 pub struct XRefStream<'a> {
-    lemmatizer: Lemmatizer<'a>,             // file tokenizer
-    size: usize,                            // trailer size entry (object number used in this XRef)
-    index: (usize, usize),                  // subsection object number ranges
-    prev: Option<i32>,                      // byte offset of previous xref
+    size: usize,              // trailer size entry (object number used in this XRef)
+    index: (usize, usize),    // subsection object number ranges
+    // prev: Option<i32>,        // byte offset of previous xref
     root: Option<(i32, i32)>, // catalogue dictionnary or a reference to the root object of the page tree
-    info: Option<(i32, i32)>, // information dictionary containing metadata
+    // info: Option<(i32, i32)>, // information dictionary containing metadata
     w: (usize, usize, usize), // xref stream entry sizes in bytes
     stream: Vec<u8>,          // uncompressed xref entries
-    table: HashMap<IndirectObject, Object>, // memoization table
+    // table: HashMap<IndirectObject, Object>, // memoization table
+    lemmatizer: Lemmatizer<'a>,
 }
 
-impl<'a> Display for XRefStream<'a> {
+impl Display for XRefStream<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut entries = String::from("Cross reference table entries (stream)\n");
         for object_idx in 0..self.size {
@@ -391,7 +391,7 @@ impl<'a> Display for XRefStream<'a> {
     }
 }
 
-impl<'a> XRefStream<'a> {
+impl XRefStream<'_> {
     // convert slice of entry bytes to numbers
     // high bytes first
     fn num(bytes: &[u8]) -> usize {
@@ -439,7 +439,7 @@ impl<'a> XRefStream<'a> {
 }
 
 impl<'a> XRefStream<'a> {
-    fn from(value: object::Stream) -> Self {
+    fn from(value: object::Stream, lemmatizer: Lemmatizer<'a>) -> Self {
         let size = match value.header.get("Size") {
             Some(Object::Numeric(Number::Integer(n))) => *n as usize,
             Some(o) => panic!(
@@ -461,7 +461,6 @@ impl<'a> XRefStream<'a> {
         };
 
         XRefStream {
-            lemmatizer,
             size,
             index: match value.header.get("Index") {
                 Some(Object::Array(a)) => {
@@ -482,21 +481,21 @@ impl<'a> XRefStream<'a> {
                 Some(o) => panic!("Cross reference stream dictionnary contains a Index value with wrong type, found {o:?}"),
                 None => (0, size) // default value (cf page 108)
             },
-            prev: match value.header.get("Prev") {
-                Some(Object::Numeric(Number::Integer(n))) => Some(*n),
-                Some(o) => panic!("Cross reference stream dictionnary contains a Prev value with wrong type, found {o:?}"),
-                None => None
-            },
+            // prev: match value.header.get("Prev") {
+            //     Some(Object::Numeric(Number::Integer(n))) => Some(*n),
+            //     Some(o) => panic!("Cross reference stream dictionnary contains a Prev value with wrong type, found {o:?}"),
+            //     None => None
+            // },
             root: match value.header.get("Root") {
                 Some(Object::Ref(r)) => Some(*r),
                 Some(o) => panic!("Cross reference stream dictionnary contains a Root value with wrong type, found {o:?}"),
                 None => None
             },
-            info: match value.header.get("Info") {
-                Some(Object::Ref(r)) => Some(*r),
-                Some(o) => panic!("Cross reference stream dictionnary contains a Info value with wrong type, found {o:?}"),
-                None => None
-            },
+            // info: match value.header.get("Info") {
+            //     Some(Object::Ref(r)) => Some(*r),
+            //     Some(o) => panic!("Cross reference stream dictionnary contains a Info value with wrong type, found {o:?}"),
+            //     None => None
+            // },
             w: match value.header.get("W") {
                 Some(Object::Array(a)) => {
                     (
@@ -520,7 +519,8 @@ impl<'a> XRefStream<'a> {
             // header: &value.header,
             stream: flate_decode(&value.bytes),
             // mem table
-            table: HashMap::new(),
+            // table: HashMap::new(),
+            lemmatizer
         }
     }
 }

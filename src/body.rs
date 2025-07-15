@@ -54,7 +54,7 @@ impl From<Name> for Filter {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-enum Indirect<T: From<Object>> {
+pub enum Indirect<T: From<Object>> {
     Ref(i32, i32),
     T(T),
 }
@@ -153,13 +153,6 @@ impl From<Object> for Stream {
 }
 
 impl Stream {
-    pub fn new(bytes: &[u8]) -> Self {
-        match Object::new(bytes) {
-            Object::Stream(stream_object) => Stream::from(stream_object),
-            _ => panic!("Stream should be a dictionary"),
-        }
-    }
-
     pub fn get_data(&self) -> Vec<u8> {
         self.data.clone()
     }
@@ -227,6 +220,23 @@ impl PageTreeKids {
             PageTreeKids::PageTreeNode(page_tree_node) => {
                 page_tree_node.read(xref).extract(e, xref)
             }
+        }
+    }
+}
+
+impl From<Object> for PageTreeKids {
+    fn from(value: Object) -> Self {
+        match value {
+            Object::Dictionary(ref dict) => match dict.get("Type") {
+                Some(Object::Name(name)) => match name.as_str() {
+                    "Pages" => PageTreeKids::PageTreeNode(Indirect::T(PageTreeNode::from(value))),
+                    "Page" => PageTreeKids::Page(Indirect::T(Page::from(value))),
+                    _ => panic!("Unexpected dictionnary type"),
+                },
+                Some(o) => panic!("Type should be a name, found object {o:?}"),
+                None => panic!("Type was not found in dictionnary, {dict:?}"),
+            },
+            _ => panic!("PageTreeKids should be a dictionary"),
         }
     }
 }
@@ -451,33 +461,17 @@ impl From<Dictionary> for Resources {
 
 #[derive(Debug, Clone)]
 pub struct PageTreeNode {
-    parent: Indirect<Rc<PageTreeNode>>, // PageTreeNode parent
-    kids: Vec<PageTreeKids>,            // PageTreeNode kids can be a Page or a PageTreeNode
-    // count: Number, // Number of leaf nodes
-    // Inheritables (cf page 149)
-    // rotate: Option<Number>, // Number of degrees by which the page should be rotated clockwise when displayeds
-    // crop_box: Option<Rectangle>, // CropBox Rectangle
-    // media_box: Option<Rectangle>, // MediaBox Rectangle
+    parent: Option<Box<Indirect<PageTreeNode>>>, // PageTreeNode parent
+    kids: Vec<Indirect<PageTreeKids>>, // PageTreeNode kids can be a Page or a PageTreeNode
     resources: Option<Indirect<Resources>>, // Resource dictionary
 }
 
 impl From<Object> for PageTreeNode {
     fn from(value: Object) -> Self {
-        match value {
-            Object::Dictionary(dict) => {
-                let page_tree_node = Rc::new(Self::from(dict));
-                // update parent weak reference of children
-                page_tree_node.kids.iter().for_each(|k| match k {
-                    PageTreeKids::Page(p) => {
-                        *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node)
-                    }
-                    PageTreeKids::PageTreeNode(p) => {
-                        *p.parent.borrow_mut() = Rc::downgrade(&page_tree_node)
-                    }
-                });
-                page_tree_node
-            }
-            _ => panic!("Trailer should be a dictionary"),
+        if let Object::Dictionary(dict) = value {
+            Self::from(dict)
+        } else {
+            panic!("Trailer should be a dictionary");
         }
     }
 }
@@ -490,17 +484,17 @@ impl PageTreeNode {
     fn get_resources(&self, xref: &mut XRef) -> Option<Resources> {
         match &self.resources {
             Some(r) => Some(r.read(xref)), // TODO : improve with smart pointer instead of cloning
-            None => match self.parent.borrow().upgrade() {
-                Some(p) => p.read(xref).get_resources(xref),
-                None => None,
-            },
+            None => {
+                let p = &self.parent;
+                p.clone().unwrap().read(xref).get_resources(xref)
+            }
         }
     }
 
     pub fn extract(&self, e: Extract, xref: &mut XRef) -> String {
         self.kids
             .iter()
-            .map(|kid| kid.extract(e.clone(), xref))
+            .map(|kid| kid.read(xref).extract(e.clone(), xref))
             .collect::<Vec<String>>()
             .join("\n")
     }
@@ -509,15 +503,22 @@ impl PageTreeNode {
 impl From<Dictionary> for PageTreeNode {
     fn from(value: Dictionary) -> Self {
         PageTreeNode {
-            parent: RefCell::new(Weak::new()),
-            kids: match value.get("Kids").unwrap() {
-                Object::Array(arr) => arr
+            parent: match value.get("Parent") {
+                Some(Object::Ref((obj, gen))) => Some(Box::new(Indirect::Ref(*obj, *gen))),
+                None => None, // only valid for root node
+                _ => panic!("PageTreeNode Parent should be an indirect object"),
+            },
+            kids: match value.get("Kids") {
+                Some(Object::Array(arr)) => arr
                     .iter()
                     .map(|kid| match kid {
-                        Object::Ref((obj, gen)) => Indirect::Ref(*obj, *gen),
+                        Object::Ref((obj, gen)) => {
+                            Indirect::Ref(*obj, *gen)
+                        }
                         _ => panic!("Kid should be an indirect object"),
                     })
                     .collect(),
+                None => panic!("PageTreeNode must have Kids"),
                 _ => panic!("Kids should be an array"),
             },
             resources: match value.get("Resources") {
@@ -562,7 +563,7 @@ impl Page {
         match &self.resources {
             Some(r) => Box::new(r.read(xref).clone()),
             None => match self.parent.borrow().upgrade() {
-                Some(p) => match p.read(xref).get_resources() {
+                Some(p) => match p.get_resources(xref) {
                     Some(r) => Box::new(r),
                     None => panic!("Resources not found for current Page and in parent tree"),
                 },
@@ -598,7 +599,7 @@ impl Page {
     fn extract_stream(&self, xref: &mut XRef) -> String {
         // Extract text
         match &self.contents {
-            Some(stream) => String::from_utf8_lossy(stream.read(xref).get_data()).to_string(),
+            Some(stream) => String::from_utf8_lossy(&stream.read(xref).get_data()).to_string(),
             None => panic!("Contents should not be empty"),
         }
     }
@@ -608,26 +609,11 @@ impl From<Dictionary> for Page {
     fn from(value: Dictionary) -> Self {
         Page {
             parent: RefCell::new(Weak::new()),
-            // last_modified: match value.get("LastModified") {
-            //     Some(Object::String(s)) => Some(s.clone()),
-            //     None => None,
-            //     _ => panic!("LastModified should be a string"),
-            // },
             resources: match value.get("Resources").unwrap() {
                 Object::Dictionary(t) => Some(Indirect::T(Resources::from(t.clone()))),
                 Object::Ref((obj, gen)) => Some(Indirect::Ref(*obj, *gen)),
                 t => panic!("Resources should be an dictionary object {t:?}"),
             },
-            // media_box: match value.get("MediaBox") {
-            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-            //     Some(a) => panic!("MediaBox should be an array; found {a:?}"),
-            //     None => None,
-            // },
-            // crop_box: match value.get("CropBox") {
-            //     Some(Object::Array(arr)) => Some(Rectangle::from(arr.clone())),
-            //     Some(a) => panic!("CropBox should be an array; found {a:?}"),
-            //     None => None,
-            // },
             contents: match value.get("Contents") {
                 Some(Object::Ref((obj, gen))) => Some(Indirect::Ref(*obj, *gen)),
                 None => None,
@@ -670,9 +656,9 @@ impl Catalog {
         }
     }
 
-    pub fn extract(&self, e: Extract) -> String {
+    pub fn extract(&self, e: Extract, xref: &mut XRef) -> String {
         match &self.pages {
-            Some(page_tree_node) => page_tree_node.extract(e),
+            Some(page_tree_node) => page_tree_node.read(xref).extract(e, xref),
             None => panic!("Pages should not be empty"),
         }
     }
@@ -680,7 +666,7 @@ impl Catalog {
     fn from(value: Dictionary) -> Self {
         Catalog {
             pages: match value.get("Pages").unwrap() {
-                Object::Ref((obj, gen)) => Some(Indirect::Ref(*obj, *gen)),
+                Object::Ref((obj, gen)) => Some(Indirect::Ref(*obj, *gen).into()),
                 _ => panic!("Pages should be an indirect object"),
             },
         }

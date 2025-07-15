@@ -740,7 +740,7 @@ impl<'a> TextContent<'a> {
                         Some(ref s) => match &self.resources.font {
                             Some(fontmap) => {
                                 let fontmap = fontmap.read(xref);
-                                fontmap.0.get(s).unwrap()
+                                fontmap.0.get(s).unwrap().clone()
                             }
                             None => panic!("Fontmap does not contains the font name {s:?}"),
                         },
@@ -775,7 +775,7 @@ impl<'a> TextContent<'a> {
                         Some(ref s) => match &self.resources.font {
                             Some(fontmap) => {
                                 let fontmap = fontmap.read(xref);
-                                fontmap.0.get(s).unwrap()
+                                fontmap.0.get(s).unwrap().clone()
                             }
                             None => panic!("Fontmap does not contains the font name {s:?}"),
                         },
@@ -794,7 +794,7 @@ impl<'a> TextContent<'a> {
                         match c {
                             ArrayVal::Text(t) => {
                                 // string characters in to unicode map
-                                match font.read(xref).to_unicode {
+                                match &font.read(xref).to_unicode {
                                     Some(to_unicode_cmap) => {
                                         let to_unicode_cmap = to_unicode_cmap.read(xref);
                                         let mut hex_iter = t.iter();

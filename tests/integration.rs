@@ -1,7 +1,7 @@
 #[test]
 fn test_helloworld() {
     let file = std::fs::read("data/helloworld.pdf").unwrap();
-    let pdf = pdfrust::Pdf::from(file);
+    let mut pdf = pdfrust::Pdf::from(file);
     assert_eq!(pdf.extract(pdfrust::Extract::Text), "Hello, world!");
     assert_eq!(
         pdf.extract(pdfrust::Extract::RawContent),

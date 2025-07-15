@@ -33,8 +33,8 @@ impl Config {
 
 fn main() {
     let config = Config::new(env::args());
-    let file = std::fs::read(config.path)?;
-    let pdf = pdfrust::Pdf::from(file);
+    let file = std::fs::read(config.path).expect("Unable to read PDF file");
+    let mut pdf = pdfrust::Pdf::from(&file);
     let content = pdf.extract(config.flags);
     println!("{content}");
 }

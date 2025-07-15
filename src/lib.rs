@@ -69,15 +69,15 @@ impl<'a> From<&'a Vec<u8>> for Pdf<'a> {
             panic!("PDF file is corrupted; not consistent trailing charaters");
         }
         // bytes offset of last xref table
-        let startxref = xref::startxref(&file);
+        let startxref = xref::startxref(file);
         // read xref tables
-        let xref = XRef::new(&file, startxref);
+        let xref = XRef::new(file, startxref);
         Pdf { file, xref }
     }
 }
 
 impl<'a> Pdf<'a> {
-    pub fn extract(&self, e: Extract) -> String {
+    pub fn extract(&mut self, e: Extract) -> String {
         match e {
             Extract::Xref => {
                 println!("{}", self.xref);
@@ -87,7 +87,7 @@ impl<'a> Pdf<'a> {
                 let xref = Rc::new(self.xref.clone());
                 let catalog_offset = xref.get_catalog_offset().unwrap();
                 let catalog = Pdf::read_catalog(&self.file, catalog_offset);
-                catalog.extract(e)
+                catalog.extract(e, &mut self.xref)
             }
         }
     }
